@@ -363,16 +363,9 @@ export function AppShell({
 
       <div className="flex-1 flex flex-col min-w-0 pb-[72px] md:pb-0">
         <Header {...effectiveHeaderProps} />
-        <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-8 py-3.5 md:py-5">
+        <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-8 py-3 md:py-5 flex flex-col">
           {children}
         </main>
-        <footer className="w-full max-w-4xl mx-auto px-4 md:px-8 py-4 border-t border-[#E9E9EE]/70 flex flex-col sm:flex-row items-center justify-between gap-2 text-[12px] text-[#6F7078]">
-          <BrandLogo href="/discover" size="sm" />
-          <span>
-            © {new Date().getFullYear()} HAIYO. Ketemu orang baru, siapa tahu
-            jadi sesuatu.
-          </span>
-        </footer>
       </div>
 
       <BottomNav

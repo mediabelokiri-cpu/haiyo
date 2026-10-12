@@ -471,7 +471,7 @@ export default function DiscoverPage() {
         />
       )}
 
-      <div className="max-w-[420px] mx-auto space-y-4">
+      <div className="w-full max-w-[420px] mx-auto flex-1 flex flex-col space-y-3">
         {/* Top Status Bar: Swipe Counter or Unlimited Badge (UI/UX Section 29) */}
         <div className="flex items-center justify-between px-1">
           <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#6F7078]">
@@ -545,7 +545,7 @@ export default function DiscoverPage() {
           </div>
         ) : currentProfile ? (
           /* Main Discover Profile Card (UI/UX Sections 26-28) */
-          <div className="relative pb-2">
+          <div className="relative flex-1 flex flex-col pb-1">
             <div
               onPointerDown={(e) => {
                 if ((e.target as HTMLElement).closest("button")) return;
@@ -586,7 +586,7 @@ export default function DiscoverPage() {
                     }
                   : undefined
               }
-              className={`relative rounded-[24px] overflow-hidden bg-white border border-[#E9E9EE] shadow-[0_8px_24px_rgba(0,0,0,0.08)] aspect-[3/4] cursor-grab active:cursor-grabbing select-none touch-pan-y ${
+              className={`relative rounded-[24px] overflow-hidden bg-white border border-[#E9E9EE] shadow-[0_8px_24px_rgba(0,0,0,0.08)] flex-1 h-[calc(100dvh-210px)] min-h-[440px] max-h-[680px] w-full cursor-grab active:cursor-grabbing select-none touch-pan-y ${
                 isDragging ? "" : "transition-all duration-200"
               } ${
                 swipeAnim === "right"
