@@ -30,6 +30,7 @@ import {
   isCurrentUserPremium,
   loadAppState,
   LocalAppState,
+  logoutUserInState,
   MASTER_INTERESTS,
 } from "@/lib/store/app-state";
 import { calculateAge } from "@/lib/utils";
@@ -49,8 +50,13 @@ export default function ProfilePage() {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   useEffect(() => {
-    setAppState(loadAppState());
-  }, []);
+    const state = loadAppState();
+    if (!state.currentUser) {
+      router.replace("/login");
+      return;
+    }
+    setAppState(state);
+  }, [router]);
 
   if (!appState || !appState.currentUser) return null;
 
@@ -91,13 +97,14 @@ export default function ProfilePage() {
   const handleLogout = async () => {
     if (isSupabaseConfigured()) {
       const supabase = createClient();
-      await supabase.auth.signOut();
+      await supabase.auth.signOut().catch(() => null);
     }
+    logoutUserInState();
     toast({
       title: "Kamu telah keluar dari akun.",
       variant: "info",
     });
-    router.push("/login");
+    router.replace("/login");
   };
 
   const menuItems = [

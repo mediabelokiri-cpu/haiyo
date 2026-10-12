@@ -25,6 +25,7 @@ import {
   getDefaultAppState,
   loadAppState,
   LocalAppState,
+  logoutUserInState,
   saveAppState,
 } from "@/lib/store/app-state";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
@@ -56,14 +57,16 @@ export default function SettingsPage() {
 
   useEffect(() => {
     const state = loadAppState();
-    setAppState(state);
-    if (state.currentUser) {
-      setPrefGender(state.currentUser.preferences.preferred_gender);
-      setMinAge(state.currentUser.preferences.min_age);
-      setMaxAge(state.currentUser.preferences.max_age);
-      setRadiusKm(state.currentUser.preferences.radius_km);
+    if (!state.currentUser) {
+      router.replace("/login");
+      return;
     }
-  }, []);
+    setAppState(state);
+    setPrefGender(state.currentUser.preferences.preferred_gender);
+    setMinAge(state.currentUser.preferences.min_age);
+    setMaxAge(state.currentUser.preferences.max_age);
+    setRadiusKm(state.currentUser.preferences.radius_km);
+  }, [router]);
 
   if (!appState || !appState.currentUser) return null;
 
@@ -279,7 +282,14 @@ export default function SettingsPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <Button
               variant="secondary"
-              onClick={() => router.push("/login")}
+              onClick={async () => {
+                if (isSupabaseConfigured()) {
+                  const supabase = createClient();
+                  await supabase.auth.signOut().catch(() => null);
+                }
+                logoutUserInState();
+                router.replace("/login");
+              }}
               leftIcon={<LogOut className="w-4 h-4" />}
             >
               Logout

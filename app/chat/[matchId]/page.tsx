@@ -166,30 +166,6 @@ export default function ChatRoomPage() {
     };
     saveAppState(updated);
     setAppState(updated);
-
-    // Friendly simulated reply in local demo mode if this is the first message
-    if (!isSupabaseConfigured() && conversationMessages.length === 0) {
-      setTimeout(() => {
-        const latest = loadAppState();
-        const currentMatch = latest.matches.find((m) => m.id === matchId);
-        if (!currentMatch || currentMatch.status !== "active") return;
-
-        const replyMsg: MessageRecord = {
-          id: `msg-reply-${Date.now()}`,
-          match_id: matchId,
-          sender_id: partner.id,
-          content: `Hai ${latest.currentUser?.profile.name}! Senang bisa Match sama kamu di HAIYO. Lagi sibuk apa hari ini?`,
-          is_read: true,
-          created_at: new Date().toISOString(),
-        };
-        const withReply: LocalAppState = {
-          ...latest,
-          messages: [...latest.messages, replyMsg],
-        };
-        saveAppState(withReply);
-        setAppState(withReply);
-      }, 1200);
-    }
   };
 
   const handleConfirmUnmatch = async () => {

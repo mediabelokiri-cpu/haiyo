@@ -66,254 +66,7 @@ export const MASTER_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   },
 ];
 
-export const SEED_CANDIDATE_PROFILES: DiscoveryProfileCard[] = [
-  {
-    id: "user-sarah",
-    name: "Sarah",
-    age: 24,
-    gender: "female",
-    city: "Kec. Panakkukang, Kota Makassar",
-    approx_distance_km: 8,
-    bio: "Suka kopi, musik dan jalan malam. Kalau kamu tahu coffee shop tenang di Makassar, kasih tahu ya!",
-    is_premium: true,
-    photos: [
-      {
-        id: "ph-sarah-1",
-        storage_path: "profile-photos/user-sarah/photo-1",
-        public_url:
-          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=900&q=80",
-        is_primary: true,
-        display_order: 1,
-      },
-      {
-        id: "ph-sarah-2",
-        storage_path: "profile-photos/user-sarah/photo-2",
-        public_url:
-          "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 2,
-      },
-      {
-        id: "ph-sarah-3",
-        storage_path: "profile-photos/user-sarah/photo-3",
-        public_url:
-          "https://images.unsplash.com/photo-1524502397800-2eeaad7c3fe5?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 3,
-      },
-    ],
-    interests: [
-      { id: "int-coffee", name: "Coffee", slug: "coffee", emoji: "☕" },
-      { id: "int-music", name: "Music", slug: "music", emoji: "🎵" },
-      { id: "int-travel", name: "Travel", slug: "travel", emoji: "✈️" },
-    ],
-  },
-  {
-    id: "user-nadia",
-    name: "Nadia",
-    age: 23,
-    gender: "female",
-    city: "Kec. Ujung Pandang, Kota Makassar",
-    approx_distance_km: 5,
-    bio: "Anak desain yang hobi motret sunset di Pantai Losari dan berburu kuliner lokal.",
-    is_premium: false,
-    photos: [
-      {
-        id: "ph-nadia-1",
-        storage_path: "profile-photos/user-nadia/photo-1",
-        public_url:
-          "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=900&q=80",
-        is_primary: true,
-        display_order: 1,
-      },
-      {
-        id: "ph-nadia-2",
-        storage_path: "profile-photos/user-nadia/photo-2",
-        public_url:
-          "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 2,
-      },
-      {
-        id: "ph-nadia-3",
-        storage_path: "profile-photos/user-nadia/photo-3",
-        public_url:
-          "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 3,
-      },
-    ],
-    interests: [
-      { id: "int-photo", name: "Photography", slug: "photography", emoji: "📸" },
-      { id: "int-food", name: "Food", slug: "food", emoji: "🍜" },
-      { id: "int-coffee", name: "Coffee", slug: "coffee", emoji: "☕" },
-    ],
-  },
-  {
-    id: "user-ayu",
-    name: "Ayu",
-    age: 26,
-    gender: "female",
-    city: "Kec. Kebayoran Baru, Kota Jakarta Selatan",
-    approx_distance_km: 12,
-    bio: "Weekend biasanya lari pagi di GBK lanjut baca buku di kafe. Yuk ngobrol santai!",
-    is_premium: true,
-    photos: [
-      {
-        id: "ph-ayu-1",
-        storage_path: "profile-photos/user-ayu/photo-1",
-        public_url:
-          "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=900&q=80",
-        is_primary: true,
-        display_order: 1,
-      },
-      {
-        id: "ph-ayu-2",
-        storage_path: "profile-photos/user-ayu/photo-2",
-        public_url:
-          "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 2,
-      },
-      {
-        id: "ph-ayu-3",
-        storage_path: "profile-photos/user-ayu/photo-3",
-        public_url:
-          "https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 3,
-      },
-    ],
-    interests: [
-      { id: "int-fitness", name: "Fitness", slug: "fitness", emoji: "🏋️" },
-      { id: "int-reading", name: "Reading", slug: "reading", emoji: "📚" },
-      { id: "int-movies", name: "Movies", slug: "movies", emoji: "🎬" },
-    ],
-  },
-  {
-    id: "user-kirana",
-    name: "Kirana",
-    age: 25,
-    gender: "female",
-    city: "Kec. Coblong, Kota Bandung",
-    approx_distance_km: 15,
-    bio: "Suka nonton film thriller, main game co-op, dan kulineran malam di Braga.",
-    is_premium: false,
-    photos: [
-      {
-        id: "ph-kirana-1",
-        storage_path: "profile-photos/user-kirana/photo-1",
-        public_url:
-          "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80",
-        is_primary: true,
-        display_order: 1,
-      },
-      {
-        id: "ph-kirana-2",
-        storage_path: "profile-photos/user-kirana/photo-2",
-        public_url:
-          "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 2,
-      },
-      {
-        id: "ph-kirana-3",
-        storage_path: "profile-photos/user-kirana/photo-3",
-        public_url:
-          "https://images.unsplash.com/photo-1464863979621-258859e62245?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 3,
-      },
-    ],
-    interests: [
-      { id: "int-gaming", name: "Gaming", slug: "gaming", emoji: "🎮" },
-      { id: "int-movies", name: "Movies", slug: "movies", emoji: "🎬" },
-      { id: "int-food", name: "Food", slug: "food", emoji: "🍜" },
-    ],
-  },
-  {
-    id: "user-reza",
-    name: "Reza",
-    age: 26,
-    gender: "male",
-    city: "Kec. Rappocini, Kota Makassar",
-    approx_distance_km: 6,
-    bio: "Software engineer yang suka seduh kopi manual brew dan main futsal tiap minggu.",
-    is_premium: true,
-    photos: [
-      {
-        id: "ph-reza-1",
-        storage_path: "profile-photos/user-reza/photo-1",
-        public_url:
-          "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=900&q=80",
-        is_primary: true,
-        display_order: 1,
-      },
-      {
-        id: "ph-reza-2",
-        storage_path: "profile-photos/user-reza/photo-2",
-        public_url:
-          "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 2,
-      },
-      {
-        id: "ph-reza-3",
-        storage_path: "profile-photos/user-reza/photo-3",
-        public_url:
-          "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 3,
-      },
-    ],
-    interests: [
-      { id: "int-coffee", name: "Coffee", slug: "coffee", emoji: "☕" },
-      { id: "int-sports", name: "Sports", slug: "sports", emoji: "⚽" },
-      { id: "int-music", name: "Music", slug: "music", emoji: "🎵" },
-    ],
-  },
-  {
-    id: "user-dimas",
-    name: "Dimas",
-    age: 27,
-    gender: "male",
-    city: "Kec. Tebet, Kota Jakarta Selatan",
-    approx_distance_km: 10,
-    bio: "Hobi traveling ke pantai, fotografi analog, dan berburu mie ayam enak.",
-    is_premium: false,
-    photos: [
-      {
-        id: "ph-dimas-1",
-        storage_path: "profile-photos/user-dimas/photo-1",
-        public_url:
-          "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=900&q=80",
-        is_primary: true,
-        display_order: 1,
-      },
-      {
-        id: "ph-dimas-2",
-        storage_path: "profile-photos/user-dimas/photo-2",
-        public_url:
-          "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 2,
-      },
-      {
-        id: "ph-dimas-3",
-        storage_path: "profile-photos/user-dimas/photo-3",
-        public_url:
-          "https://images.unsplash.com/photo-1480455624313-e29b44bbfde1?auto=format&fit=crop&w=900&q=80",
-        is_primary: false,
-        display_order: 3,
-      },
-    ],
-    interests: [
-      { id: "int-travel", name: "Travel", slug: "travel", emoji: "✈️" },
-      { id: "int-photo", name: "Photography", slug: "photography", emoji: "📸" },
-      { id: "int-food", name: "Food", slug: "food", emoji: "🍜" },
-    ],
-  },
-];
+export const SEED_CANDIDATE_PROFILES: DiscoveryProfileCard[] = [];
 
 export interface PaymentRecipientConfig {
   qrisMerchantName: string;
@@ -531,7 +284,8 @@ export interface LocalAppState {
   };
 }
 
-const STORAGE_KEY = "haiyo_app_state_v1";
+const STORAGE_KEY = "haiyo_live_state_v2";
+const LEGACY_DEMO_STORAGE_KEY = "haiyo_app_state_v1";
 
 function getTodayDateString(): string {
   return new Date().toISOString().slice(0, 10);
@@ -540,76 +294,14 @@ function getTodayDateString(): string {
 export function getDefaultAppState(): LocalAppState {
   const today = getTodayDateString();
   return {
-    currentUser: {
-      id: "user-me",
-      email: "alex@haiyo.id",
-      emailVerified: true,
-      isOnboarded: true,
-      profile: {
-        id: "user-me",
-        name: "Alex",
-        date_of_birth: "2001-05-14",
-        gender: "male",
-        city: "Kec. Panakkukang, Kota Makassar",
-        bio: "Suka kopi, jalan sore, dan ngobrol sampai lupa waktu.",
-        latitude: -5.1477,
-        longitude: 119.4327,
-        status: "active",
-        is_admin: false,
-        created_at: "2026-10-01T08:00:00Z",
-        updated_at: "2026-10-06T12:00:00Z",
-      },
-      photos: [
-        {
-          id: "ph-me-1",
-          user_id: "user-me",
-          storage_path: "profile-photos/user-me/photo-1",
-          public_url:
-            "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80",
-          is_primary: true,
-          display_order: 1,
-          created_at: "2026-10-01T08:00:00Z",
-        },
-        {
-          id: "ph-me-2",
-          user_id: "user-me",
-          storage_path: "profile-photos/user-me/photo-2",
-          public_url:
-            "https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&w=800&q=80",
-          is_primary: false,
-          display_order: 2,
-          created_at: "2026-10-01T08:05:00Z",
-        },
-      ],
-      interests: ["coffee", "music", "travel"],
-      preferences: {
-        user_id: "user-me",
-        preferred_gender: "female",
-        min_age: 20,
-        max_age: 30,
-        radius_km: 25,
-        updated_at: "2026-10-06T12:00:00Z",
-      },
-    },
-    // Sarah and Ayu already liked the current user so liking them triggers an instant atomic Match!
-    likedByUserIds: ["user-sarah", "user-ayu", "user-nadia"],
+    currentUser: null,
+    likedByUserIds: [],
     myLikedUserIds: [],
     myPassedUserIds: [],
     blockedUserIds: [],
     matches: [],
     messages: [],
-    notifications: [
-      {
-        id: "notif-1",
-        user_id: "user-me",
-        type: "new_like",
-        title: "Ada yang menyukaimu",
-        message: "Seseorang di Makassar baru saja menyukai profilmu.",
-        reference_id: "user-sarah",
-        is_read: false,
-        created_at: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
-      },
-    ],
+    notifications: [],
     reports: [],
     subscriptions: [],
     payments: [],
@@ -617,9 +309,22 @@ export function getDefaultAppState(): LocalAppState {
     homepageConfig: DEFAULT_HOMEPAGE_CONFIG,
     swipeUsageToday: {
       usage_date: today,
-      swipe_count: 5,
+      swipe_count: 0,
     },
   };
+}
+
+export function logoutUserInState(): void {
+  if (typeof window === "undefined") return;
+  const current = loadAppState();
+  const next: LocalAppState = {
+    ...getDefaultAppState(),
+    paymentConfig: current.paymentConfig,
+    homepageConfig: current.homepageConfig,
+    currentUser: null,
+  };
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  window.dispatchEvent(new Event("haiyo-state-updated"));
 }
 
 export function loadAppState(): LocalAppState {
@@ -627,26 +332,36 @@ export function loadAppState(): LocalAppState {
     return getDefaultAppState();
   }
   try {
+    // Purge legacy demo/dummy state (Alex, Sarah, etc.) from older sessions
+    if (window.localStorage.getItem(LEGACY_DEMO_STORAGE_KEY)) {
+      window.localStorage.removeItem(LEGACY_DEMO_STORAGE_KEY);
+    }
+
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       const initial = getDefaultAppState();
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+      if (isSupabaseConfigured() && !hasSyncedSiteSettings) {
+        hasSyncedSiteSettings = true;
+        void pullSiteSettingsFromSupabase();
+      }
       return initial;
     }
     const parsed = JSON.parse(raw) as LocalAppState;
+
     // Reset daily swipe counter automatically if date changed
     const today = getTodayDateString();
     if (parsed.swipeUsageToday?.usage_date !== today) {
       parsed.swipeUsageToday = { usage_date: today, swipe_count: 0 };
     }
 
-    // Backfill paymentConfig if missing from older localStorage
+    // Backfill paymentConfig if missing
     parsed.paymentConfig = {
       ...DEFAULT_PAYMENT_CONFIG,
       ...(parsed.paymentConfig ?? {}),
     };
 
-    // Backfill homepageConfig if missing from older localStorage
+    // Backfill homepageConfig if missing
     parsed.homepageConfig = {
       ...DEFAULT_HOMEPAGE_CONFIG,
       ...(parsed.homepageConfig ?? {}),
@@ -664,34 +379,19 @@ export function loadAppState(): LocalAppState {
           : DEFAULT_HOMEPAGE_CONFIG.safetyItems,
     };
 
-    // Backfill multi-photo galleries & updated Kecamatan/Kota format for existing matched partners in localStorage
-    if (Array.isArray(parsed.matches)) {
-      parsed.matches = parsed.matches.map((m) => {
-        const seedPartner = SEED_CANDIDATE_PROFILES.find(
-          (p) => p.id === m.partner?.id
-        );
-        if (seedPartner) {
-          return {
-            ...m,
-            partner: {
-              ...m.partner,
-              city: seedPartner.city,
-              photos:
-                !m.partner.photos ||
-                m.partner.photos.length < seedPartner.photos.length
-                  ? seedPartner.photos
-                  : m.partner.photos,
-            },
-          };
-        }
-        return m;
-      });
-    }
-
-    // Ensure only admin@haiyo.id (or verified DB Admin) retains Admin privileges
+    // Wipe any leftover demo user "Alex" if ever present
     if (
       parsed.currentUser &&
-      parsed.currentUser.email.trim().toLowerCase() === "alex@haiyo.id"
+      (parsed.currentUser.id === "user-me" ||
+        parsed.currentUser.email.trim().toLowerCase() === "alex@haiyo.id")
+    ) {
+      parsed.currentUser = null;
+    }
+
+    // Strict Admin Role Enforcement: only admin@haiyo.id is Super Admin by default
+    if (
+      parsed.currentUser &&
+      parsed.currentUser.email.trim().toLowerCase() !== "admin@haiyo.id"
     ) {
       parsed.currentUser.profile.is_admin = false;
     }

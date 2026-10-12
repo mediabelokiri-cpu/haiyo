@@ -447,44 +447,6 @@ function PaymentStatusContent() {
                 </a>
               )}
             </div>
-
-            {/* Sandbox Webhook Simulator Controls (Phase 9 Deliverable) */}
-            <div className="p-4 rounded-[16px] bg-[#eaf5ef] border border-[#67bf9a]/30 space-y-3 text-left">
-              <p className="text-[12px] font-bold text-[#67bf9a] uppercase tracking-wider flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5" />
-                <span>Payment Gateway / Admin Simulator</span>
-              </p>
-              <p className="text-[12px] text-[#6F7078]">
-                Sesuai PRD Bagian 26 & 34, verifikasi pembayaran diproses
-                melalui server <code className="font-mono">/api/webhooks/payment</code>{" "}
-                atau melalui persetujuan Admin di{" "}
-                <Link
-                  href="/admin?tab=payments"
-                  className="font-semibold text-[#67bf9a] underline"
-                >
-                  Portal Admin (/admin)
-                </Link>
-                :
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  isLoading={isSimulating}
-                  onClick={() => handleTriggerWebhook("paid")}
-                >
-                  Webhook: PAID
-                </Button>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  isLoading={isSimulating}
-                  onClick={() => handleTriggerWebhook("failed")}
-                >
-                  Webhook: FAILED
-                </Button>
-              </div>
-            </div>
           </div>
         )}
 

@@ -38,12 +38,6 @@ import { Gender } from "@/types/database";
 
 const TOTAL_STEPS = 5;
 
-const SAMPLE_AVATAR_PRESETS = [
-  "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80",
-  "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=800&q=80",
-  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
-];
-
 export default function OnboardingPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -53,8 +47,8 @@ export default function OnboardingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Step 1 — Basic Info
-  const [name, setName] = useState("Alex");
-  const [dob, setDob] = useState("2001-05-14");
+  const [name, setName] = useState("");
+  const [dob, setDob] = useState("");
   const [gender, setGender] = useState<Gender>("male");
   const [city, setCity] = useState("Kec. Panakkukang, Kota Makassar");
   const [coords, setCoords] = useState<{
@@ -65,19 +59,13 @@ export default function OnboardingPage() {
   const [step1Error, setStep1Error] = useState<string | null>(null);
 
   // Step 2 — Photos (min 1, max 6)
-  const [photos, setPhotos] = useState<string[]>([SAMPLE_AVATAR_PRESETS[0]]);
+  const [photos, setPhotos] = useState<string[]>([]);
 
   // Step 3 — Bio (max 500 chars)
-  const [bio, setBio] = useState(
-    "Suka kopi, jalan sore, dan ngobrol sampai lupa waktu."
-  );
+  const [bio, setBio] = useState("");
 
   // Step 4 — Interests (min 3)
-  const [selectedInterests, setSelectedInterests] = useState<string[]>([
-    "coffee",
-    "music",
-    "travel",
-  ]);
+  const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
 
   // Step 5 — Preferences
   const [preferredGender, setPreferredGender] = useState<Gender>("female");
@@ -576,17 +564,10 @@ export default function OnboardingPage() {
                 {photos.length < 6 && (
                   <button
                     type="button"
-                    onClick={() =>
-                      setPhotos((prev) => [
-                        ...prev,
-                        SAMPLE_AVATAR_PRESETS[
-                          prev.length % SAMPLE_AVATAR_PRESETS.length
-                        ],
-                      ])
-                    }
+                    onClick={() => fileInputRef.current?.click()}
                     className="font-semibold text-[#267a50] hover:underline cursor-pointer"
                   >
-                    + Tambah Foto Contoh Cepat
+                    + Pilih Foto dari Galeri / Kamera
                   </button>
                 )}
               </div>

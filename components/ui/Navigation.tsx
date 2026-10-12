@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Compass,
   Heart,
@@ -16,6 +16,8 @@ import {
   Crown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { loadAppState, logoutUserInState } from "@/lib/store/app-state";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { BrandLogo } from "./BrandLogo";
 
 export interface NavItem {
@@ -263,9 +265,31 @@ export function AppShell({
   unreadLikesCount?: number;
   onLogout?: () => void;
 }) {
+  const router = useRouter();
+
+  useEffect(() => {
+    const state = loadAppState();
+    if (!state.currentUser) {
+      router.replace("/login");
+    }
+  }, [router]);
+
+  const handleLogout = async () => {
+    if (onLogout) {
+      onLogout();
+      return;
+    }
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      await supabase.auth.signOut().catch(() => null);
+    }
+    logoutUserInState();
+    router.replace("/login");
+  };
+
   return (
     <div className="min-h-dvh flex flex-col md:flex-row bg-[#f9f9fa] text-[#1d1d1d]">
-      <Sidebar onLogout={onLogout} unreadChatCount={unreadChatCount} />
+      <Sidebar onLogout={handleLogout} unreadChatCount={unreadChatCount} />
 
       <div className="flex-1 flex flex-col min-w-0 pb-[72px] md:pb-0">
         <Header {...headerProps} />

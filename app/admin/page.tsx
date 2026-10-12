@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   BarChart3,
@@ -12,6 +13,7 @@ import {
   Flag,
   Heart,
   LayoutTemplate,
+  LogOut,
   MessageCircle,
   QrCode,
   RotateCcw,
@@ -41,17 +43,24 @@ import {
   HomepageConfig,
   loadAppState,
   LocalAppState,
+  logoutUserInState,
   MASTER_SUBSCRIPTION_PLANS,
   PaymentRecipientConfig,
   saveAppState,
-  SEED_CANDIDATE_PROFILES,
 } from "@/lib/store/app-state";
-import { formatRupiah } from "@/lib/utils";
+import { calculateAge, formatRupiah } from "@/lib/utils";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import {
   compressImageToWebP,
   formatKilobytes,
 } from "@/lib/supabase/photo-storage";
-import { ReportStatus, UserStatus } from "@/types/database";
+import {
+  PaymentRecord,
+  ReportRecord,
+  ReportStatus,
+  SubscriptionRecord,
+  UserStatus,
+} from "@/types/database";
 
 type AdminTab =
   | "dashboard"
@@ -86,6 +95,7 @@ interface ManagedUserRow {
  * - Payments (Pengaturan Rekening/E-Wallet/QRIS Pribadi + Verifikasi Pembayaran Paid/Pending/Failed)
  */
 export default function AdminDashboardPage() {
+  const router = useRouter();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<AdminTab>("dashboard");
   const [appState, setAppState] = useState<LocalAppState | null>(null);
@@ -95,21 +105,9 @@ export default function AdminDashboardPage() {
     DEFAULT_HOMEPAGE_CONFIG
   );
 
-  const [managedUsers, setManagedUsers] = useState<ManagedUserRow[]>(() =>
-    SEED_CANDIDATE_PROFILES.map((p, idx) => ({
-      id: p.id,
-      name: p.name,
-      email: `${p.name.toLowerCase()}@haiyo.id`,
-      age: p.age,
-      gender: p.gender,
-      city: p.city,
-      status: "active" as UserStatus,
-      is_premium: p.is_premium,
-      created_at: `2026-10-0${(idx % 6) + 1}`,
-      avatar_url: p.photos[0]?.public_url,
-      bio: p.bio,
-    }))
-  );
+  const [managedUsers, setManagedUsers] = useState<ManagedUserRow[]>([]);
+  const [dbMatchesCount, setDbMatchesCount] = useState<number>(0);
+  const [dbMessagesCount, setDbMessagesCount] = useState<number>(0);
 
   // Filters
   const [userSearch, setUserSearch] = useState("");
@@ -144,12 +142,142 @@ export default function AdminDashboardPage() {
         setActiveTab(tabParam);
       }
     }
+
+    // Fetch live operational data from Supabase
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      void (async () => {
+        try {
+          const [
+            { data: profileRows },
+            { data: photoRows },
+            { data: subRows },
+            { data: payRows },
+            { data: repRows },
+            { count: matchesCnt },
+            { count: messagesCnt },
+          ] = await Promise.all([
+            supabase
+              .from("profiles")
+              .select("*")
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("profile_photos")
+              .select("*")
+              .order("display_order", { ascending: true }),
+            supabase
+              .from("subscriptions")
+              .select("*")
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("payments")
+              .select("*")
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("reports")
+              .select("*")
+              .order("created_at", { ascending: false }),
+            supabase
+              .from("matches")
+              .select("*", { count: "exact", head: true }),
+            supabase
+              .from("messages")
+              .select("*", { count: "exact", head: true }),
+          ]);
+
+          if (typeof matchesCnt === "number") setDbMatchesCount(matchesCnt);
+          if (typeof messagesCnt === "number") setDbMessagesCount(messagesCnt);
+
+          if (Array.isArray(profileRows)) {
+            const activeSubUserIds = new Set(
+              (subRows ?? [])
+                .filter(
+                  (s) =>
+                    s.status === "active" &&
+                    (!s.expires_at ||
+                      new Date(s.expires_at).getTime() > Date.now())
+                )
+                .map((s) => s.user_id)
+            );
+
+            const mapped: ManagedUserRow[] = profileRows
+              .filter((p) => !p.is_admin)
+              .map((p) => {
+                const primaryPhoto = (photoRows ?? []).find(
+                  (ph) => ph.user_id === p.id && ph.is_primary
+                ) ?? (photoRows ?? []).find((ph) => ph.user_id === p.id);
+
+                let avatarUrl: string | undefined;
+                if (primaryPhoto?.storage_path) {
+                  avatarUrl =
+                    primaryPhoto.storage_path.startsWith("http") ||
+                    primaryPhoto.storage_path.startsWith("data:")
+                      ? primaryPhoto.storage_path
+                      : supabase.storage
+                          .from("profile-photos")
+                          .getPublicUrl(
+                            primaryPhoto.storage_path.replace(
+                              /^profile-photos\//,
+                              ""
+                            )
+                          ).data.publicUrl;
+                }
+
+                return {
+                  id: p.id,
+                  name: p.name || "User",
+                  email: `${(p.name || "user").toLowerCase().replace(/\s+/g, ".")}@user.haiyo`,
+                  age: p.date_of_birth ? calculateAge(p.date_of_birth) : 20,
+                  gender: (p.gender === "female" ? "female" : "male") as
+                    | "male"
+                    | "female",
+                  city: p.city || "-",
+                  status: (p.status as UserStatus) || "active",
+                  is_premium: activeSubUserIds.has(p.id),
+                  created_at: (p.created_at || "").slice(0, 10),
+                  avatar_url: avatarUrl,
+                  bio: p.bio ?? "",
+                };
+              });
+
+            setManagedUsers(mapped);
+          }
+
+          setAppState((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              subscriptions:
+                Array.isArray(subRows) && subRows.length > 0
+                  ? (subRows as SubscriptionRecord[])
+                  : prev.subscriptions,
+              payments:
+                Array.isArray(payRows) && payRows.length > 0
+                  ? (payRows as PaymentRecord[])
+                  : prev.payments,
+              reports:
+                Array.isArray(repRows) && repRows.length > 0
+                  ? (repRows as ReportRecord[])
+                  : prev.reports,
+            };
+          });
+        } catch {
+          // Non-blocking fallback
+        }
+      })();
+    }
   }, []);
 
   if (!appState) return null;
 
-  // Enforce Admin authorization check
-  if (!appState.currentUser?.profile.is_admin) {
+  // Enforce strict Admin authorization check
+  const isAuthorizedAdmin = Boolean(
+    appState.currentUser &&
+      (appState.currentUser.email.trim().toLowerCase() === "admin@haiyo.id" ||
+        appState.currentUser.profile.is_admin)
+  );
+
+  if (!isAuthorizedAdmin) {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-[#f9f9fa] text-center">
         <div className="w-full max-w-[420px] rounded-[24px] bg-white border border-[#E9E9EE] shadow-[0_4px_20px_rgba(0,0,0,0.06)] p-8 space-y-5">
@@ -159,7 +287,8 @@ export default function AdminDashboardPage() {
               Akses Terbatas (Admin Only)
             </h1>
             <p className="text-[14px] text-[#6F7078] leading-relaxed">
-              Silakan masuk menggunakan akun Administrator resmi HAIYO untuk
+              Silakan masuk menggunakan akun Administrator resmi HAIYO (
+              <strong className="text-[#1d1d1d]">admin@haiyo.id</strong>) untuk
               mengakses Portal Admin.
             </p>
           </div>
@@ -456,17 +585,27 @@ export default function AdminDashboardPage() {
     });
   };
 
-  // Metrics calculation
-  const totalUsersCount = managedUsers.length + 1;
-  const activeUsersCount =
-    managedUsers.filter((u) => u.status === "active").length + 1;
-  const premiumUsersCount =
-    managedUsers.filter((u) => u.is_premium).length +
-    (appState.subscriptions.some((s) => s.status === "active") ? 1 : 0);
-  const totalPaidRevenue =
-    appState.payments
-      .filter((p) => p.status === "paid")
-      .reduce((acc, p) => acc + p.amount, 0) + 195000;
+  // Real Metrics calculation (0 dummy/sample offsets)
+  const totalUsersCount = managedUsers.length;
+  const activeUsersCount = managedUsers.filter(
+    (u) => u.status === "active"
+  ).length;
+  const newUsers7dCount = managedUsers.filter((u) => {
+    const createdMs = new Date(u.created_at).getTime();
+    return (
+      !Number.isNaN(createdMs) &&
+      Date.now() - createdMs <= 7 * 24 * 60 * 60 * 1000
+    );
+  }).length;
+  const totalMatchesCount = Math.max(dbMatchesCount, appState.matches.length);
+  const totalMessagesCount = Math.max(
+    dbMessagesCount,
+    appState.messages.length
+  );
+  const premiumUsersCount = managedUsers.filter((u) => u.is_premium).length;
+  const totalPaidRevenue = appState.payments
+    .filter((p) => p.status === "paid")
+    .reduce((acc, p) => acc + p.amount, 0);
 
   const filteredUsers = managedUsers.filter((u) => {
     const matchesQuery =
@@ -481,82 +620,44 @@ export default function AdminDashboardPage() {
     return matchesQuery && matchesStatus && matchesPremium;
   });
 
-  const allReports =
-    appState.reports.length > 0
-      ? appState.reports
-      : [
-          {
-            id: "rep-sample-1",
-            reporter_id: "user-sarah",
-            reported_user_id: "user-dimas",
-            reason: "spam" as const,
-            description: "Mengirim promosi berulang kali di bio.",
-            status: "pending" as const,
-            reviewed_by: null,
-            reviewed_at: null,
-            created_at: new Date().toISOString(),
-          },
-        ];
+  const allReports = appState.reports;
+  const allSubscriptions = appState.subscriptions;
+  const allPayments = appState.payments;
 
-  const allSubscriptions =
-    appState.subscriptions.length > 0
-      ? appState.subscriptions
-      : [
-          {
-            id: "sub-sample-1",
-            user_id: "user-sarah",
-            plan_id: "plan-1m",
-            status: "active" as const,
-            started_at: "2026-10-01T00:00:00Z",
-            expires_at: "2026-10-31T00:00:00Z",
-            created_at: "2026-10-01T00:00:00Z",
-            updated_at: "2026-10-01T00:00:00Z",
-          },
-          {
-            id: "sub-sample-2",
-            user_id: "user-reza",
-            plan_id: "plan-3m",
-            status: "active" as const,
-            started_at: "2026-09-15T00:00:00Z",
-            expires_at: "2026-12-14T00:00:00Z",
-            created_at: "2026-09-15T00:00:00Z",
-            updated_at: "2026-09-15T00:00:00Z",
-          },
-        ];
+  const totalActiveSubs = allSubscriptions.length;
+  const sub1mPct =
+    totalActiveSubs > 0
+      ? Math.round(
+          (allSubscriptions.filter((s) => s.plan_id === "plan-1m").length /
+            totalActiveSubs) *
+            100
+        )
+      : 0;
+  const sub3mPct =
+    totalActiveSubs > 0
+      ? Math.round(
+          (allSubscriptions.filter((s) => s.plan_id === "plan-3m").length /
+            totalActiveSubs) *
+            100
+        )
+      : 0;
+  const sub7dPct =
+    totalActiveSubs > 0
+      ? Math.max(0, 100 - sub1mPct - sub3mPct)
+      : 0;
 
-  const allPayments =
-    appState.payments.length > 0
-      ? appState.payments
-      : [
-          {
-            id: "pay-sample-1",
-            user_id: "user-sarah",
-            subscription_id: "sub-sample-1",
-            order_id: "HAIYO-100291",
-            transaction_id: "TRX-88921",
-            gateway: "midtrans",
-            payment_method: "qris",
-            amount: 29000,
-            status: "paid" as const,
-            paid_at: "2026-10-01T08:30:00Z",
-            created_at: "2026-10-01T08:25:00Z",
-            updated_at: "2026-10-01T08:30:00Z",
-          },
-          {
-            id: "pay-sample-2",
-            user_id: "user-reza",
-            subscription_id: "sub-sample-2",
-            order_id: "HAIYO-100184",
-            transaction_id: "TRX-77410",
-            gateway: "xendit",
-            payment_method: "bca_va",
-            amount: 69000,
-            status: "paid" as const,
-            paid_at: "2026-09-15T14:10:00Z",
-            created_at: "2026-09-15T14:05:00Z",
-            updated_at: "2026-09-15T14:10:00Z",
-          },
-        ];
+  const handleAdminLogout = async () => {
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      await supabase.auth.signOut().catch(() => null);
+    }
+    logoutUserInState();
+    toast({
+      title: "Admin berhasil keluar.",
+      variant: "info",
+    });
+    router.replace("/login");
+  };
 
   const handleSaveHomepageConfig = (e: React.FormEvent) => {
     e.preventDefault();
@@ -636,14 +737,22 @@ export default function AdminDashboardPage() {
           </nav>
         </div>
 
-        <div className="hidden md:block pt-4 border-t border-[#E9E9EE]">
+        <div className="pt-4 border-t border-[#E9E9EE] flex md:flex-col items-center md:items-stretch justify-between gap-2">
           <Link
-            href="/discover"
-            className="inline-flex items-center gap-2 text-[13px] font-semibold text-[#6F7078] hover:text-[#267a50]"
+            href="/"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-[10px] text-[13px] font-semibold text-[#6F7078] hover:text-[#267a50] hover:bg-[#f9f9fa] transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>Kembali ke Aplikasi User</span>
+            <span>Lihat Beranda Web</span>
           </Link>
+          <button
+            type="button"
+            onClick={handleAdminLogout}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-[10px] text-[13px] font-semibold text-[#EF4444] hover:bg-[#EF4444]/10 transition-colors cursor-pointer text-left"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Logout Admin</span>
+          </button>
         </div>
       </aside>
 
@@ -657,8 +766,8 @@ export default function AdminDashboardPage() {
                 Admin Dashboard
               </h1>
               <p className="text-[14px] text-[#6F7078]">
-                Ringkasan operasional pengguna, percakapan, moderasi laporan,
-                dan pendapatan langganan HAIYO.
+                Ringkasan operasional real-time pengguna, percakapan, moderasi
+                laporan, dan pendapatan langganan HAIYO.
               </p>
             </div>
 
@@ -679,19 +788,19 @@ export default function AdminDashboardPage() {
                 },
                 {
                   label: "New Users (7d)",
-                  val: 4,
+                  val: newUsers7dCount,
                   icon: UserPlus,
                   tone: "text-[#67bf9a] bg-[#eaf5ef]",
                 },
                 {
                   label: "Total Matches",
-                  val: appState.matches.length + 12,
+                  val: totalMatchesCount,
                   icon: Heart,
                   tone: "text-[#267a50] bg-[#eaf5ef]",
                 },
                 {
                   label: "Total Messages",
-                  val: appState.messages.length + 84,
+                  val: totalMessagesCount,
                   icon: MessageCircle,
                   tone: "text-[#67bf9a] bg-[#eaf5ef]",
                 },
@@ -745,32 +854,46 @@ export default function AdminDashboardPage() {
                   <h2 className="text-[16px] font-bold">
                     User & Premium Growth
                   </h2>
-                  <Badge variant="primary">Bulan Ini</Badge>
+                  <Badge variant="primary">Real-Time</Badge>
                 </div>
                 <div className="h-44 flex items-end justify-between gap-3 pt-6 px-2">
                   {[
-                    { label: "W1", u: 45, p: 20 },
-                    { label: "W2", u: 62, p: 30 },
-                    { label: "W3", u: 78, p: 42 },
-                    { label: "W4", u: 95, p: 58 },
+                    {
+                      label: "Total User",
+                      u: Math.min(100, totalUsersCount * 10),
+                      count: totalUsersCount,
+                    },
+                    {
+                      label: "User Aktif",
+                      u: Math.min(100, activeUsersCount * 10),
+                      count: activeUsersCount,
+                    },
+                    {
+                      label: "User Baru (7d)",
+                      u: Math.min(100, newUsers7dCount * 10),
+                      count: newUsers7dCount,
+                    },
+                    {
+                      label: "Premium",
+                      u: Math.min(100, premiumUsersCount * 10),
+                      count: premiumUsersCount,
+                    },
                   ].map((bar) => (
                     <div
                       key={bar.label}
                       className="flex-1 flex flex-col items-center gap-2"
                     >
-                      <div className="w-full flex items-end justify-center gap-1.5 h-32">
+                      <span className="text-[12px] font-bold text-[#1d1d1d]">
+                        {bar.count}
+                      </span>
+                      <div className="w-full flex items-end justify-center gap-1.5 h-28 bg-[#f9f9fa] rounded-[10px] p-1.5">
                         <div
-                          className="w-5 rounded-t-[6px] bg-[#267a50]"
-                          style={{ height: `${bar.u}%` }}
-                          title={`Users: ${bar.u}`}
-                        />
-                        <div
-                          className="w-5 rounded-t-[6px] bg-[#67bf9a]"
-                          style={{ height: `${bar.p}%` }}
-                          title={`Premium: ${bar.p}`}
+                          className="w-8 rounded-t-[6px] bg-[#267a50] transition-all"
+                          style={{ height: `${Math.max(6, bar.u)}%` }}
+                          title={`${bar.label}: ${bar.count}`}
                         />
                       </div>
-                      <span className="text-[11px] font-semibold text-[#6F7078]">
+                      <span className="text-[11px] font-semibold text-[#6F7078] text-center">
                         {bar.label}
                       </span>
                     </div>
@@ -781,25 +904,27 @@ export default function AdminDashboardPage() {
               <div className="p-6 rounded-[20px] bg-white border border-[#E9E9EE] space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-[16px] font-bold">
-                    Distribusi Paket Premium & Laporan
+                    Distribusi Paket Premium
                   </h2>
-                  <Badge variant="secondary">3 Paket Aktif</Badge>
+                  <Badge variant="secondary">
+                    {totalActiveSubs} Langganan
+                  </Badge>
                 </div>
                 <div className="space-y-3 pt-2 text-[13px]">
                   {[
                     {
                       name: "Premium 1 Bulan (Rp29.000)",
-                      pct: 64,
+                      pct: sub1mPct,
                       color: "bg-[#267a50]",
                     },
                     {
                       name: "Premium 3 Bulan (Rp69.000)",
-                      pct: 24,
+                      pct: sub3mPct,
                       color: "bg-[#67bf9a]",
                     },
                     {
                       name: "Premium 7 Hari (Rp12.000)",
-                      pct: 12,
+                      pct: sub7dPct,
                       color: "bg-[#22C55E]",
                     },
                   ].map((item) => (
