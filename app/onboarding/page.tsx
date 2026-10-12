@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -27,6 +27,9 @@ import { getCityCoordinates } from "@/lib/constants/cities";
 import {
   MASTER_INTERESTS,
   completeOnboardingInState,
+  loadAppState,
+  saveAppState,
+  syncAppStateFromSupabase,
 } from "@/lib/store/app-state";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import {
@@ -72,6 +75,69 @@ export default function OnboardingPage() {
   const [minAge, setMinAge] = useState<number>(20);
   const [maxAge, setMaxAge] = useState<number>(30);
   const [radiusKm, setRadiusKm] = useState<number>(25);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    const supabase = createClient();
+    void supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return;
+      const { data: profileRow } = await supabase
+        .from("profiles")
+        .select("name, is_onboarded")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (profileRow?.is_onboarded) {
+        await syncAppStateFromSupabase();
+        router.replace("/discover");
+        return;
+      }
+
+      const googleName =
+        profileRow?.name ||
+        (user.user_metadata?.full_name as string | undefined) ||
+        (user.user_metadata?.name as string | undefined) ||
+        "";
+      if (googleName) {
+        setName((prev) => prev || googleName);
+      }
+
+      const state = loadAppState();
+      if (!state.currentUser || state.currentUser.id !== user.id) {
+        saveAppState({
+          ...state,
+          currentUser: {
+            id: user.id,
+            email: user.email ?? "",
+            emailVerified: true,
+            isOnboarded: false,
+            profile: {
+              id: user.id,
+              name: googleName,
+              date_of_birth: "2002-01-01",
+              gender: "male",
+              city: "Kec. Panakkukang, Kota Makassar",
+              bio: "",
+              status: "active",
+              is_admin: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            photos: [],
+            interests: [],
+            preferences: {
+              user_id: user.id,
+              preferred_gender: "female",
+              min_age: 20,
+              max_age: 30,
+              radius_km: 25,
+              updated_at: new Date().toISOString(),
+            },
+          },
+        });
+      }
+    });
+  }, [router]);
 
   const calculatedAge = dob ? calculateAge(dob) : 0;
 
