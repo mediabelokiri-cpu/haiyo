@@ -52,13 +52,16 @@ export default function RegisterPage() {
 
     setIsLoading(true);
     try {
+      let createdUserId = `user-${Date.now()}`;
+      let isEmailConfirmed = false;
+
       if (isSupabaseConfigured()) {
         const supabase = createClient();
-        const { error } = await supabase.auth.signUp({
+        const { data: signUpData, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
           },
         });
         if (error) {
@@ -70,19 +73,22 @@ export default function RegisterPage() {
           setIsLoading(false);
           return;
         }
+        if (signUpData.user?.id) {
+          createdUserId = signUpData.user.id;
+          isEmailConfirmed = Boolean(signUpData.user.email_confirmed_at);
+        }
       }
 
       const state = loadAppState();
-      const newUserId = `user-${Date.now()}`;
       saveAppState({
         ...state,
         currentUser: {
-          id: newUserId,
+          id: createdUserId,
           email: email.trim().toLowerCase(),
-          emailVerified: false,
+          emailVerified: isEmailConfirmed,
           isOnboarded: false,
           profile: {
-            id: newUserId,
+            id: createdUserId,
             name: "",
             date_of_birth: "2002-01-01",
             gender: "male",
@@ -96,7 +102,7 @@ export default function RegisterPage() {
           photos: [],
           interests: [],
           preferences: {
-            user_id: newUserId,
+            user_id: createdUserId,
             preferred_gender: "female",
             min_age: 20,
             max_age: 30,

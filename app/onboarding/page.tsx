@@ -254,6 +254,8 @@ export default function OnboardingPage() {
       const fallbackCityCoords = getCityCoordinates(city);
       const finalLat = coords.lat ?? fallbackCityCoords?.latitude ?? null;
       const finalLng = coords.lng ?? fallbackCityCoords?.longitude ?? null;
+      let resolvedUserId: string | undefined;
+      let resolvedEmail: string | undefined;
 
       if (isSupabaseConfigured()) {
         const supabase = createClient();
@@ -262,12 +264,15 @@ export default function OnboardingPage() {
         } = await supabase.auth.getUser();
 
         if (user) {
+          resolvedUserId = user.id;
+          resolvedEmail = user.email;
+
           await supabase.from("profiles").upsert({
             id: user.id,
             name: name.trim(),
             date_of_birth: dob,
             gender,
-            city,
+            city: city.trim(),
             bio: bio.trim(),
             latitude: finalLat,
             longitude: finalLng,
@@ -283,6 +288,33 @@ export default function OnboardingPage() {
             radius_km: radiusKm,
           });
 
+          await supabase.from("profile_photos").delete().eq("user_id", user.id);
+          if (photos.length > 0) {
+            await supabase.from("profile_photos").insert(
+              photos.slice(0, 6).map((url, idx) => ({
+                user_id: user.id,
+                storage_path: url,
+                is_primary: idx === 0,
+                display_order: idx + 1,
+              }))
+            );
+          }
+
+          const { data: masterInterests } = await supabase
+            .from("interests")
+            .select("id, slug")
+            .in("slug", selectedInterests);
+
+          if (Array.isArray(masterInterests) && masterInterests.length > 0) {
+            await supabase.from("user_interests").delete().eq("user_id", user.id);
+            await supabase.from("user_interests").insert(
+              masterInterests.map((item) => ({
+                user_id: user.id,
+                interest_id: item.id,
+              }))
+            );
+          }
+
           await supabase.from("analytics_events").insert({
             user_id: user.id,
             event_name: "profile_completed",
@@ -292,6 +324,8 @@ export default function OnboardingPage() {
       }
 
       completeOnboardingInState({
+        userId: resolvedUserId,
+        email: resolvedEmail,
         name,
         dateOfBirth: dob,
         gender,

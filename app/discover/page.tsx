@@ -43,6 +43,7 @@ import {
   loadAppState,
   LocalAppState,
   saveAppState,
+  syncAppStateFromSupabase,
 } from "@/lib/store/app-state";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { DiscoveryProfileCard, Gender } from "@/types/database";
@@ -94,16 +95,17 @@ export default function DiscoverPage() {
     }
     setCandidates(getFilteredDiscoveryCandidates(state));
 
-    // Also invoke PostgreSQL RPC get_discovery_profiles() if Supabase is connected
     if (isSupabaseConfigured()) {
-      const supabase = createClient();
-      supabase
-        .rpc("get_discovery_profiles", { p_limit: 20 })
-        .then(({ data }) => {
-          if (Array.isArray(data) && data.length > 0) {
-            setCandidates(data as DiscoveryProfileCard[]);
-          }
-        });
+      void syncAppStateFromSupabase().then((synced) => {
+        setAppState(synced);
+        if (synced.currentUser) {
+          setFilterGender(synced.currentUser.preferences.preferred_gender);
+          setFilterMinAge(synced.currentUser.preferences.min_age);
+          setFilterMaxAge(synced.currentUser.preferences.max_age);
+          setFilterRadius(synced.currentUser.preferences.radius_km);
+        }
+        setCandidates(getFilteredDiscoveryCandidates(synced));
+      });
     }
   }, []);
 
@@ -161,13 +163,46 @@ export default function DiscoverPage() {
     setTimeout(async () => {
       setSwipeAnim(null);
 
+      let serverIsMatch = false;
+      let serverMatchId: string | null = null;
+
       // Call PostgreSQL atomic RPC record_swipe_action() when Supabase is configured
       if (isSupabaseConfigured()) {
         const supabase = createClient();
-        await supabase.rpc("record_swipe_action", {
-          p_target_user_id: target.id,
-          p_action: action,
-        });
+        const { data: rpcData, error: rpcError } = await supabase.rpc(
+          "record_swipe_action",
+          {
+            p_target_user_id: target.id,
+            p_action: action,
+          }
+        );
+
+        if (!rpcError && rpcData && typeof rpcData === "object") {
+          const parsedRpc = rpcData as {
+            is_match?: boolean;
+            match_id?: string | null;
+          };
+          serverIsMatch = Boolean(parsedRpc.is_match);
+          serverMatchId = parsedRpc.match_id ?? null;
+        } else {
+          // Direct table fallback if RPC fails
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          if (user) {
+            if (action === "pass") {
+              await supabase.from("passes").upsert({
+                from_user_id: user.id,
+                to_user_id: target.id,
+              });
+            } else {
+              await supabase.from("likes").upsert({
+                from_user_id: user.id,
+                to_user_id: target.id,
+              });
+            }
+          }
+        }
       }
 
       const fresh = loadAppState();
@@ -190,14 +225,15 @@ export default function DiscoverPage() {
       }
 
       // Action === "like" -> Atomic reciprocal check
-      const isMutual = fresh.likedByUserIds.includes(target.id);
+      const isMutual =
+        serverIsMatch || fresh.likedByUserIds.includes(target.id);
       const myId = fresh.currentUser?.id ?? "user-me";
       const normalizedUserA = myId < target.id ? myId : target.id;
       const normalizedUserB = myId < target.id ? target.id : myId;
 
       let updatedMatches = [...fresh.matches];
       let updatedNotifications = [...fresh.notifications];
-      let createdMatchId: string | null = null;
+      let createdMatchId: string | null = serverMatchId;
 
       if (isMutual) {
         const existingMatch = updatedMatches.find(
@@ -208,12 +244,14 @@ export default function DiscoverPage() {
         );
 
         if (existingMatch) {
-          createdMatchId = existingMatch.id;
+          createdMatchId = serverMatchId ?? existingMatch.id;
           updatedMatches = updatedMatches.map((m) =>
-            m.id === existingMatch.id ? { ...m, status: "active" } : m
+            m.id === existingMatch.id
+              ? { ...m, id: createdMatchId!, status: "active" }
+              : m
           );
         } else {
-          createdMatchId = `match-${Date.now()}`;
+          createdMatchId = serverMatchId ?? `match-${Date.now()}`;
           updatedMatches = [
             {
               id: createdMatchId,
@@ -271,7 +309,7 @@ export default function DiscoverPage() {
     }, 180);
   };
 
-  const handleUndoPass = () => {
+  const handleUndoPass = async () => {
     if (!isPremium) {
       toast({
         title: "Fitur HAIYO Premium",
@@ -287,6 +325,20 @@ export default function DiscoverPage() {
         variant: "info",
       });
       return;
+    }
+
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase
+          .from("passes")
+          .delete()
+          .eq("from_user_id", user.id)
+          .eq("to_user_id", lastPassedProfile.id);
+      }
     }
 
     const fresh = loadAppState();
@@ -306,9 +358,12 @@ export default function DiscoverPage() {
     });
   };
 
-  const handleApplyFilter = () => {
+  const handleApplyFilter = async () => {
     const fresh = loadAppState();
     if (!fresh.currentUser) return;
+
+    const cleanMinAge = Math.max(18, filterMinAge);
+    const cleanMaxAge = Math.max(cleanMinAge, filterMaxAge);
 
     const updated: LocalAppState = {
       ...fresh,
@@ -317,8 +372,8 @@ export default function DiscoverPage() {
         preferences: {
           ...fresh.currentUser.preferences,
           preferred_gender: filterGender,
-          min_age: Math.max(18, filterMinAge),
-          max_age: Math.max(filterMinAge, filterMaxAge),
+          min_age: cleanMinAge,
+          max_age: cleanMaxAge,
           radius_km: filterRadius,
           updated_at: new Date().toISOString(),
         },
@@ -328,6 +383,31 @@ export default function DiscoverPage() {
     setAppState(updated);
     setCandidates(getFilteredDiscoveryCandidates(updated));
     setIsFilterOpen(false);
+
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("user_preferences").upsert({
+            user_id: user.id,
+            preferred_gender: filterGender,
+            min_age: cleanMinAge,
+            max_age: cleanMaxAge,
+            radius_km: filterRadius,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        const synced = await syncAppStateFromSupabase();
+        setAppState(synced);
+        setCandidates(getFilteredDiscoveryCandidates(synced));
+      } catch {
+        // non-blocking
+      }
+    }
+
     toast({
       title: "Filter pencarian diperbarui.",
       variant: "success",

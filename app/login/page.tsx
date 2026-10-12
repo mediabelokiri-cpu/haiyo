@@ -131,6 +131,17 @@ export default function LoginPage() {
             password,
           });
         if (error || !authData.user) {
+          if (error?.message?.toLowerCase().includes("email not confirmed")) {
+            toast({
+              title: "Email belum diverifikasi",
+              description:
+                "Silakan cek kotak masuk/spam email kamu dan klik link verifikasi terlebih dahulu.",
+              variant: "error",
+            });
+            setIsLoading(false);
+            router.push("/verify-email");
+            return;
+          }
           toast({
             title: "Login belum berhasil",
             description: "Periksa kembali email dan password kamu.",

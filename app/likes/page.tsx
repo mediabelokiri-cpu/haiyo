@@ -20,7 +20,9 @@ import {
   LocalAppState,
   saveAppState,
   SEED_CANDIDATE_PROFILES,
+  syncAppStateFromSupabase,
 } from "@/lib/store/app-state";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { DiscoveryProfileCard } from "@/types/database";
 
 /**
@@ -40,6 +42,11 @@ export default function LikesPage() {
 
   useEffect(() => {
     setAppState(loadAppState());
+    if (isSupabaseConfigured()) {
+      void syncAppStateFromSupabase().then((synced) => {
+        setAppState(synced);
+      });
+    }
   }, []);
 
   if (!appState || !appState.currentUser) return null;
@@ -62,12 +69,25 @@ export default function LikesPage() {
     appState.currentUser.photos[0]?.public_url ??
     "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&w=800&q=80";
 
-  const handleLikeBack = (target: DiscoveryProfileCard) => {
+  const handleLikeBack = async (target: DiscoveryProfileCard) => {
+    let serverMatchId: string | null = null;
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      const { data: rpcData } = await supabase.rpc("record_swipe_action", {
+        p_target_user_id: target.id,
+        p_action: "like",
+      });
+      if (rpcData && typeof rpcData === "object") {
+        serverMatchId =
+          (rpcData as { match_id?: string | null }).match_id ?? null;
+      }
+    }
+
     const fresh = loadAppState();
     const myId = fresh.currentUser?.id ?? "user-me";
     const normalizedA = myId < target.id ? myId : target.id;
     const normalizedB = myId < target.id ? target.id : myId;
-    const newMatchId = `match-${Date.now()}`;
+    const newMatchId = serverMatchId ?? `match-${Date.now()}`;
 
     const updated: LocalAppState = {
       ...fresh,
@@ -110,7 +130,14 @@ export default function LikesPage() {
     });
   };
 
-  const handlePassFromLikes = (target: DiscoveryProfileCard) => {
+  const handlePassFromLikes = async (target: DiscoveryProfileCard) => {
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      await supabase.rpc("record_swipe_action", {
+        p_target_user_id: target.id,
+        p_action: "pass",
+      });
+    }
     const fresh = loadAppState();
     const updated: LocalAppState = {
       ...fresh,

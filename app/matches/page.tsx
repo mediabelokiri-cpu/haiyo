@@ -22,7 +22,9 @@ import {
   loadAppState,
   LocalAppState,
   saveAppState,
+  syncAppStateFromSupabase,
 } from "@/lib/store/app-state";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { DiscoveryProfileCard } from "@/types/database";
 
 /**
@@ -52,6 +54,11 @@ export default function MatchesPage() {
 
   useEffect(() => {
     setAppState(loadAppState());
+    if (isSupabaseConfigured()) {
+      void syncAppStateFromSupabase().then((synced) => {
+        setAppState(synced);
+      });
+    }
   }, []);
 
   if (!appState) return null;

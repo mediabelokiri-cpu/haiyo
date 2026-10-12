@@ -43,18 +43,45 @@ function VerifyEmailContent() {
     }
   };
 
-  const handleContinueOnboarding = () => {
-    const state = loadAppState();
-    if (state.currentUser) {
-      saveAppState({
-        ...state,
-        currentUser: {
-          ...state.currentUser,
-          emailVerified: true,
-        },
-      });
+  const [isChecking, setIsChecking] = useState(false);
+
+  const handleContinueOnboarding = async () => {
+    setIsChecking(true);
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user || !user.email_confirmed_at) {
+          toast({
+            title: "Email belum terverifikasi",
+            description:
+              "Silakan buka inbox email kamu dan klik link verifikasi terlebih dahulu. Jika sudah klik di perangkat/aplikasi lain, silakan klik tombol Login di bawah.",
+            variant: "error",
+          });
+          return;
+        }
+
+        const state = loadAppState();
+        if (state.currentUser) {
+          saveAppState({
+            ...state,
+            currentUser: {
+              ...state.currentUser,
+              id: user.id,
+              email: (user.email ?? email).trim().toLowerCase(),
+              emailVerified: true,
+            },
+          });
+        }
+        router.push("/onboarding");
+        return;
+      }
+    } finally {
+      setIsChecking(false);
     }
-    router.push("/onboarding");
   };
 
   return (
@@ -79,7 +106,7 @@ function VerifyEmailContent() {
             ) : (
               ""
             )}
-            .
+            . Klik link di dalam email tersebut untuk mengaktifkan akun dan lanjut mengisi profil.
           </p>
         </div>
 
@@ -87,10 +114,11 @@ function VerifyEmailContent() {
           <Button
             variant="primary"
             fullWidth
+            isLoading={isChecking}
             onClick={handleContinueOnboarding}
             rightIcon={<ArrowRight className="w-4 h-4" />}
           >
-            Lanjut ke Onboarding
+            Saya Sudah Verifikasi Email
           </Button>
 
           <Button
@@ -99,7 +127,7 @@ function VerifyEmailContent() {
             isLoading={isResending}
             onClick={handleResend}
           >
-            Kirim Ulang Email
+            Kirim Ulang Email Verifikasi
           </Button>
         </div>
 

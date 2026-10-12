@@ -410,40 +410,128 @@ export function loadAppState(): LocalAppState {
 
 let hasSyncedSiteSettings = false;
 
-async function pullSiteSettingsFromSupabase(): Promise<void> {
-  if (typeof window === "undefined" || !isSupabaseConfigured()) return;
+function haversineDistanceKm(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.max(1, Math.round(R * c));
+}
+
+export function computeCandidateDistanceKm(
+  myCity: string,
+  myLat: number | null | undefined,
+  myLon: number | null | undefined,
+  candCity: string,
+  candLat: number | null | undefined,
+  candLon: number | null | undefined
+): number {
+  const normMy = (myCity || "").trim().toLowerCase();
+  const normCand = (candCity || "").trim().toLowerCase();
+
+  // Exact same Kecamatan / Kota string -> ~2 km
+  if (normMy && normCand && normMy === normCand) {
+    return 2;
+  }
+
+  const myParts = normMy
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const candParts = normCand
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // Same Kecamatan name (first segment)
+  if (myParts[0] && candParts[0] && myParts[0] === candParts[0]) {
+    return 3;
+  }
+
+  // Same Kabupaten / Kota (second segment)
+  if (
+    myParts.length >= 2 &&
+    candParts.length >= 2 &&
+    myParts[1] === candParts[1]
+  ) {
+    return 8;
+  }
+
+  // If both have valid coordinates, use Haversine formula
+  if (
+    typeof myLat === "number" &&
+    typeof myLon === "number" &&
+    typeof candLat === "number" &&
+    typeof candLon === "number"
+  ) {
+    return haversineDistanceKm(myLat, myLon, candLat, candLon);
+  }
+
+  // Fallback coordinate lookup from city strings
+  const myFallback = getCityCoordinates(myCity);
+  const candFallback = getCityCoordinates(candCity);
+  if (myFallback && candFallback) {
+    return haversineDistanceKm(
+      myFallback.latitude,
+      myFallback.longitude,
+      candFallback.latitude,
+      candFallback.longitude
+    );
+  }
+
+  return 15;
+}
+
+export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
+  if (typeof window === "undefined" || !isSupabaseConfigured()) {
+    return loadAppState();
+  }
   try {
     const supabase = createClient();
-    const { data, error } = await supabase
-      .from("site_settings")
-      .select("key, value")
-      .in("key", ["payment_config", "homepage_config"]);
-
-    if (error || !Array.isArray(data) || data.length === 0) return;
-
     const raw = window.localStorage.getItem(STORAGE_KEY);
     const current = raw
       ? (JSON.parse(raw) as LocalAppState)
       : getDefaultAppState();
 
     let changed = false;
-    for (const row of data) {
-      if (row.key === "payment_config" && row.value) {
-        current.paymentConfig = {
-          ...DEFAULT_PAYMENT_CONFIG,
-          ...(row.value as Partial<PaymentRecipientConfig>),
-        };
-        changed = true;
-      } else if (row.key === "homepage_config" && row.value) {
-        current.homepageConfig = {
-          ...DEFAULT_HOMEPAGE_CONFIG,
-          ...(row.value as Partial<HomepageConfig>),
-        };
-        changed = true;
+
+    // 1. Pull site_settings (non-blocking if empty)
+    const { data: settingsData } = await supabase
+      .from("site_settings")
+      .select("key, value")
+      .in("key", ["payment_config", "homepage_config"]);
+
+    if (Array.isArray(settingsData) && settingsData.length > 0) {
+      for (const row of settingsData) {
+        if (row.key === "payment_config" && row.value) {
+          current.paymentConfig = {
+            ...DEFAULT_PAYMENT_CONFIG,
+            ...(row.value as Partial<PaymentRecipientConfig>),
+          };
+          changed = true;
+        } else if (row.key === "homepage_config" && row.value) {
+          current.homepageConfig = {
+            ...DEFAULT_HOMEPAGE_CONFIG,
+            ...(row.value as Partial<HomepageConfig>),
+          };
+          changed = true;
+        }
       }
     }
 
-    // Also sync authenticated user profile, photos, preferences, subscriptions, and payments from Supabase
+    // 2. Sync authenticated user profile, preferences, photos, interests, likes, passes, blocks, matches
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -456,6 +544,10 @@ async function pullSiteSettingsFromSupabase(): Promise<void> {
         { data: userInterestRows },
         { data: subRows },
         { data: payRows },
+        { data: myLikesRows },
+        { data: likedByRows },
+        { data: myPassesRows },
+        { data: blockRows },
       ] = await Promise.all([
         supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
         supabase
@@ -482,6 +574,22 @@ async function pullSiteSettingsFromSupabase(): Promise<void> {
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: false }),
+        supabase
+          .from("likes")
+          .select("to_user_id")
+          .eq("from_user_id", user.id),
+        supabase
+          .from("likes")
+          .select("from_user_id")
+          .eq("to_user_id", user.id),
+        supabase
+          .from("passes")
+          .select("to_user_id")
+          .eq("from_user_id", user.id),
+        supabase
+          .from("blocks")
+          .select("blocker_id, blocked_id")
+          .or(`blocker_id.eq.${user.id},blocked_id.eq.${user.id}`),
       ]);
 
       if (profileRow) {
@@ -491,13 +599,15 @@ async function pullSiteSettingsFromSupabase(): Promise<void> {
                 id: p.id,
                 user_id: p.user_id,
                 storage_path: p.storage_path,
-                public_url: p.storage_path.startsWith("http") || p.storage_path.startsWith("data:")
-                  ? p.storage_path
-                  : supabase.storage
-                      .from("profile-photos")
-                      .getPublicUrl(
-                        p.storage_path.replace(/^profile-photos\//, "")
-                      ).data.publicUrl,
+                public_url:
+                  p.storage_path.startsWith("http") ||
+                  p.storage_path.startsWith("data:")
+                    ? p.storage_path
+                    : supabase.storage
+                        .from("profile-photos")
+                        .getPublicUrl(
+                          p.storage_path.replace(/^profile-photos\//, "")
+                        ).data.publicUrl,
                 is_primary: p.is_primary,
                 display_order: p.display_order,
                 created_at: p.created_at,
@@ -507,23 +617,31 @@ async function pullSiteSettingsFromSupabase(): Promise<void> {
         const mappedInterests: string[] =
           Array.isArray(userInterestRows) && userInterestRows.length > 0
             ? userInterestRows
-                .map((row: { interests?: { slug?: string } | Array<{ slug?: string }> | null }) => {
-                  if (Array.isArray(row.interests)) {
-                    return row.interests[0]?.slug ?? "";
+                .map(
+                  (row: {
+                    interests?:
+                      | { slug?: string }
+                      | Array<{ slug?: string }>
+                      | null;
+                  }) => {
+                    if (Array.isArray(row.interests)) {
+                      return row.interests[0]?.slug ?? "";
+                    }
+                    return row.interests?.slug ?? "";
                   }
-                  return row.interests?.slug ?? "";
-                })
+                )
                 .filter(Boolean)
             : current.currentUser?.interests ?? ["coffee", "music", "travel"];
 
         current.currentUser = {
           id: user.id,
           email: user.email ?? current.currentUser?.email ?? "",
-          emailVerified: Boolean(user.email_confirmed_at ?? true),
+          emailVerified: Boolean(user.email_confirmed_at),
           isOnboarded: Boolean(profileRow.is_onboarded),
           profile: {
             id: user.id,
-            name: profileRow.name || current.currentUser?.profile.name || "User",
+            name:
+              profileRow.name || current.currentUser?.profile.name || "User",
             date_of_birth:
               profileRow.date_of_birth ||
               current.currentUser?.profile.date_of_birth ||
@@ -557,9 +675,10 @@ async function pullSiteSettingsFromSupabase(): Promise<void> {
               }
             : current.currentUser?.preferences ?? {
                 user_id: user.id,
-                preferred_gender: "female",
-                min_age: 20,
-                max_age: 30,
+                preferred_gender:
+                  profileRow.gender === "female" ? "male" : "female",
+                min_age: 18,
+                max_age: 35,
                 radius_km: 25,
                 updated_at: new Date().toISOString(),
               },
@@ -567,13 +686,236 @@ async function pullSiteSettingsFromSupabase(): Promise<void> {
         changed = true;
       }
 
-      if (Array.isArray(subRows) && subRows.length > 0) {
+      if (Array.isArray(subRows)) {
         current.subscriptions = subRows as SubscriptionRecord[];
         changed = true;
       }
-      if (Array.isArray(payRows) && payRows.length > 0) {
+      if (Array.isArray(payRows)) {
         current.payments = payRows as PaymentRecord[];
         changed = true;
+      }
+      if (Array.isArray(myLikesRows)) {
+        current.myLikedUserIds = Array.from(
+          new Set(myLikesRows.map((r) => r.to_user_id))
+        );
+        changed = true;
+      }
+      if (Array.isArray(likedByRows)) {
+        current.likedByUserIds = Array.from(
+          new Set(likedByRows.map((r) => r.from_user_id))
+        );
+        changed = true;
+      }
+      if (Array.isArray(myPassesRows)) {
+        current.myPassedUserIds = Array.from(
+          new Set(myPassesRows.map((r) => r.to_user_id))
+        );
+        changed = true;
+      }
+      if (Array.isArray(blockRows)) {
+        current.blockedUserIds = Array.from(
+          new Set(
+            blockRows.map((b) =>
+              b.blocker_id === user.id ? b.blocked_id : b.blocker_id
+            )
+          )
+        );
+        changed = true;
+      }
+    }
+
+    // 3. Fetch all active onboarded candidate profiles from Supabase
+    const myId = user?.id ?? current.currentUser?.id ?? "";
+    const myCity = current.currentUser?.profile.city ?? "";
+    const myLat = current.currentUser?.profile.latitude ?? null;
+    const myLon = current.currentUser?.profile.longitude ?? null;
+
+    const { data: candidateRows } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("status", "active")
+      .eq("is_onboarded", true)
+      .eq("is_admin", false)
+      .order("updated_at", { ascending: false })
+      .limit(100);
+
+    if (Array.isArray(candidateRows)) {
+      const otherProfiles = candidateRows.filter((p) => p.id !== myId);
+      const otherIds = otherProfiles.map((p) => p.id);
+
+      const [
+        { data: allPhotos },
+        { data: allUserInterests },
+        { data: allActiveSubs },
+      ] =
+        otherIds.length > 0
+          ? await Promise.all([
+              supabase
+                .from("profile_photos")
+                .select("*")
+                .in("user_id", otherIds)
+                .order("is_primary", { ascending: false })
+                .order("display_order", { ascending: true }),
+              supabase
+                .from("user_interests")
+                .select("user_id, interests(id, name, slug, emoji)")
+                .in("user_id", otherIds),
+              supabase
+                .from("subscriptions")
+                .select("user_id, status, expires_at")
+                .in("user_id", otherIds)
+                .eq("status", "active"),
+            ])
+          : [{ data: [] }, { data: [] }, { data: [] }];
+
+      const nowMs = Date.now();
+      const premiumUserSet = new Set(
+        (allActiveSubs ?? [])
+          .filter(
+            (s) => s.expires_at && new Date(s.expires_at).getTime() > nowMs
+          )
+          .map((s) => s.user_id)
+      );
+
+      const mappedCandidates: DiscoveryProfileCard[] = otherProfiles.map(
+        (prof) => {
+          const rawPhotos = (allPhotos ?? []).filter(
+            (ph) => ph.user_id === prof.id
+          );
+          const resolvedPhotos: DiscoveryProfileCard["photos"] =
+            rawPhotos.length > 0
+              ? rawPhotos.map((ph, idx) => ({
+                  id: String(ph.id),
+                  storage_path: String(ph.storage_path),
+                  public_url:
+                    ph.storage_path.startsWith("http") ||
+                    ph.storage_path.startsWith("data:")
+                      ? String(ph.storage_path)
+                      : supabase.storage
+                          .from("profile-photos")
+                          .getPublicUrl(
+                            ph.storage_path.replace(/^profile-photos\//, "")
+                          ).data.publicUrl,
+                  is_primary: Boolean(ph.is_primary ?? idx === 0),
+                  display_order: Number(ph.display_order ?? idx + 1),
+                }))
+              : [
+                  {
+                    id: `fallback-${prof.id}`,
+                    storage_path:
+                      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+                    public_url:
+                      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=800&q=80",
+                    is_primary: true,
+                    display_order: 1,
+                  },
+                ];
+
+          const rawInterests = (allUserInterests ?? []).filter(
+            (ui: { user_id: string }) => ui.user_id === prof.id
+          );
+          const resolvedInterests = rawInterests
+            .map(
+              (ui: {
+                interests?:
+                  | { id: string; name: string; slug: string; emoji?: string }
+                  | Array<{
+                      id: string;
+                      name: string;
+                      slug: string;
+                      emoji?: string;
+                    }>
+                  | null;
+              }) => {
+                const item = Array.isArray(ui.interests)
+                  ? ui.interests[0]
+                  : ui.interests;
+                if (!item) return null;
+                return {
+                  id: item.id,
+                  name: item.name,
+                  slug: item.slug,
+                  emoji: item.emoji ?? "✨",
+                };
+              }
+            )
+            .filter(
+              (
+                x
+              ): x is {
+                id: string;
+                name: string;
+                slug: string;
+                emoji: string;
+              } => Boolean(x)
+            );
+
+          const distKm = computeCandidateDistanceKm(
+            myCity,
+            myLat,
+            myLon,
+            prof.city || "",
+            prof.latitude,
+            prof.longitude
+          );
+
+          return {
+            id: prof.id,
+            name: prof.name || "Pengguna HAIYO",
+            age: calculateAge(prof.date_of_birth || "2000-01-01"),
+            gender: (prof.gender as Gender) || "female",
+            city: prof.city || "Indonesia",
+            approx_distance_km: distKm,
+            bio: prof.bio || "Halo! Salam kenal di HAIYO.",
+            is_premium: premiumUserSet.has(prof.id),
+            photos: resolvedPhotos,
+            interests:
+              resolvedInterests.length > 0
+                ? resolvedInterests
+                : MASTER_INTERESTS.slice(0, 3),
+          };
+        }
+      );
+
+      SEED_CANDIDATE_PROFILES.splice(
+        0,
+        SEED_CANDIDATE_PROFILES.length,
+        ...mappedCandidates
+      );
+      changed = true;
+
+      // Also sync active matches for authenticated user
+      if (user) {
+        const { data: matchRows } = await supabase
+          .from("matches")
+          .select("*")
+          .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
+          .order("matched_at", { ascending: false });
+
+        if (Array.isArray(matchRows)) {
+          const syncedMatches = matchRows
+            .map((m) => {
+              const partnerId =
+                m.user_a_id === user.id ? m.user_b_id : m.user_a_id;
+              const partnerCard = mappedCandidates.find(
+                (c) => c.id === partnerId
+              );
+              if (!partnerCard) return null;
+              return {
+                id: m.id,
+                user_a_id: m.user_a_id,
+                user_b_id: m.user_b_id,
+                status: m.status,
+                matched_at: m.matched_at,
+                unmatched_at: m.unmatched_at,
+                created_at: m.created_at,
+                partner: partnerCard,
+              };
+            })
+            .filter((m): m is NonNullable<typeof m> => Boolean(m));
+
+          current.matches = syncedMatches;
+        }
       }
     }
 
@@ -581,9 +923,14 @@ async function pullSiteSettingsFromSupabase(): Promise<void> {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
       window.dispatchEvent(new Event("haiyo-state-updated"));
     }
+    return current;
   } catch {
-    // Non-blocking fallback when offline
+    return loadAppState();
   }
+}
+
+async function pullSiteSettingsFromSupabase(): Promise<void> {
+  await syncAppStateFromSupabase();
 }
 
 export function saveAppState(state: LocalAppState): void {
@@ -642,6 +989,8 @@ export function getActiveSubscription(
 }
 
 export function completeOnboardingInState(params: {
+  userId?: string;
+  email?: string;
   name: string;
   dateOfBirth: string;
   gender: Gender;
@@ -657,8 +1006,8 @@ export function completeOnboardingInState(params: {
   radiusKm: number;
 }): LocalAppState {
   const state = loadAppState();
-  const userId = state.currentUser?.id ?? "user-me";
-  const email = state.currentUser?.email ?? "user@haiyo.id";
+  const userId = params.userId ?? state.currentUser?.id ?? "user-me";
+  const email = params.email ?? state.currentUser?.email ?? "user@haiyo.id";
   const fallbackCoords = getCityCoordinates(params.city);
   const finalLat = params.latitude ?? fallbackCoords?.latitude ?? null;
   const finalLng = params.longitude ?? fallbackCoords?.longitude ?? null;
