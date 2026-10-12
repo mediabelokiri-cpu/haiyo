@@ -17,7 +17,9 @@ import {
   loadAppState,
   LocalAppState,
   saveAppState,
+  syncAppStateFromSupabase,
 } from "@/lib/store/app-state";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { NotificationType } from "@/types/database";
 
 const NOTIF_ICON_CONFIG: Record<
@@ -72,6 +74,18 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     setAppState(loadAppState());
+    if (isSupabaseConfigured()) {
+      void syncAppStateFromSupabase().then((synced) => {
+        setAppState(synced);
+      });
+    }
+    const handleStateUpdated = () => {
+      setAppState(loadAppState());
+    };
+    window.addEventListener("haiyo-state-updated", handleStateUpdated);
+    return () => {
+      window.removeEventListener("haiyo-state-updated", handleStateUpdated);
+    };
   }, []);
 
   if (!appState) return null;
@@ -86,7 +100,20 @@ export default function NotificationsPage() {
     (n) => n.created_at.slice(0, 10) !== todayStr
   );
 
-  const handleMarkAllRead = () => {
+  const handleMarkAllRead = async () => {
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase
+          .from("notifications")
+          .update({ is_read: true })
+          .eq("user_id", user.id)
+          .eq("is_read", false);
+      }
+    }
     const fresh = loadAppState();
     const updated: LocalAppState = {
       ...fresh,
@@ -174,7 +201,9 @@ export default function NotificationsPage() {
                               )}
                             </div>
                             <p className="text-[14px] text-[#6F7078] mt-0.5 leading-relaxed">
-                              {item.message}
+                              {item.message.startsWith("[IMG]")
+                                ? "📷 Mengirim gambar"
+                                : item.message}
                             </p>
                             <span className="inline-block text-[11px] text-[#A0A0A8] mt-1.5">
                               {new Date(item.created_at).toLocaleString(

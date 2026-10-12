@@ -59,6 +59,13 @@ export default function MatchesPage() {
         setAppState(synced);
       });
     }
+    const handleStateUpdated = () => {
+      setAppState(loadAppState());
+    };
+    window.addEventListener("haiyo-state-updated", handleStateUpdated);
+    return () => {
+      window.removeEventListener("haiyo-state-updated", handleStateUpdated);
+    };
   }, []);
 
   if (!appState) return null;
@@ -175,7 +182,10 @@ export default function MatchesPage() {
                   <div className="space-y-2.5">
                     {items.map((match) => {
                       const matchMessages = appState.messages.filter(
-                        (msg) => msg.match_id === match.id
+                        (msg) =>
+                          msg.match_id === match.id &&
+                          msg.content !== "[DELETED_IMG]" &&
+                          msg.content !== "[DELETED_MSG]"
                       );
                       const lastMsg =
                         matchMessages[matchMessages.length - 1] ?? null;
@@ -237,7 +247,11 @@ export default function MatchesPage() {
                                 className="block text-[13px] text-[#6F7078] hover:text-[#1d1d1d] truncate mt-0.5"
                               >
                                 {lastMsg
-                                  ? lastMsg.content
+                                  ? lastMsg.content === "[RECALLED_IMG]"
+                                    ? "🚫 Gambar telah ditarik"
+                                    : lastMsg.content.startsWith("[IMG]")
+                                    ? "📷 Mengirim gambar"
+                                    : lastMsg.content
                                   : "Kalian saling suka! Mulai sapa sekarang."}
                               </Link>
                             </div>

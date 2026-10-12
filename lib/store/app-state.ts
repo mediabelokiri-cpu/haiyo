@@ -884,13 +884,26 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
       );
       changed = true;
 
-      // Also sync active matches for authenticated user
+      // Also sync active matches, messages, and notifications for authenticated user
       if (user) {
-        const { data: matchRows } = await supabase
-          .from("matches")
-          .select("*")
-          .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
-          .order("matched_at", { ascending: false });
+        const [{ data: matchRows }, { data: notifRows }] = await Promise.all([
+          supabase
+            .from("matches")
+            .select("*")
+            .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
+            .order("matched_at", { ascending: false }),
+          supabase
+            .from("notifications")
+            .select("*")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(60),
+        ]);
+
+        if (Array.isArray(notifRows)) {
+          current.notifications = notifRows as NotificationRecord[];
+          changed = true;
+        }
 
         if (Array.isArray(matchRows)) {
           const syncedMatches = matchRows
@@ -915,6 +928,26 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
             .filter((m): m is NonNullable<typeof m> => Boolean(m));
 
           current.matches = syncedMatches;
+
+          const matchIds = syncedMatches.map((m) => m.id);
+          if (matchIds.length > 0) {
+            const { data: msgRows } = await supabase
+              .from("messages")
+              .select("*")
+              .in("match_id", matchIds)
+              .order("created_at", { ascending: true });
+
+            if (Array.isArray(msgRows)) {
+              current.messages = (msgRows as MessageRecord[]).filter(
+                (msg) =>
+                  msg.content !== "[DELETED_IMG]" &&
+                  msg.content !== "[DELETED_MSG]"
+              );
+              changed = true;
+            }
+          } else {
+            current.messages = [];
+          }
         }
       }
     }

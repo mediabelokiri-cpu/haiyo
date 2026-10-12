@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -16,7 +16,11 @@ import {
   Crown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { loadAppState, logoutUserInState } from "@/lib/store/app-state";
+import {
+  loadAppState,
+  logoutUserInState,
+  syncAppStateFromSupabase,
+} from "@/lib/store/app-state";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { BrandLogo } from "./BrandLogo";
 
@@ -266,12 +270,70 @@ export function AppShell({
   onLogout?: () => void;
 }) {
   const router = useRouter();
+  const [liveUnreadChat, setLiveUnreadChat] = useState(0);
+  const [liveUnreadLikes, setLiveUnreadLikes] = useState(0);
+  const [liveUnreadNotifs, setLiveUnreadNotifs] = useState(false);
 
   useEffect(() => {
-    const state = loadAppState();
-    if (!state.currentUser) {
-      router.replace("/login");
+    const computeBadges = () => {
+      const state = loadAppState();
+      if (!state.currentUser) return false;
+      const myId = state.currentUser.id;
+      const unreadMsgs = state.messages.filter(
+        (m) =>
+          !m.is_read &&
+          m.sender_id !== myId &&
+          m.content !== "[DELETED_IMG]" &&
+          m.content !== "[DELETED_MSG]"
+      ).length;
+      const unreadLikes = state.likedByUserIds.filter(
+        (id) =>
+          !state.myLikedUserIds.includes(id) &&
+          !state.myPassedUserIds.includes(id) &&
+          !state.blockedUserIds.includes(id)
+      ).length;
+      const unreadNotifs = state.notifications.some((n) => !n.is_read);
+
+      setLiveUnreadChat(unreadMsgs);
+      setLiveUnreadLikes(unreadLikes);
+      setLiveUnreadNotifs(unreadNotifs || unreadMsgs > 0);
+      return true;
+    };
+
+    const hasUser = computeBadges();
+    if (!hasUser) {
+      if (isSupabaseConfigured()) {
+        void syncAppStateFromSupabase().then((synced) => {
+          if (!synced.currentUser) {
+            router.replace("/login");
+          } else {
+            computeBadges();
+          }
+        });
+      } else {
+        router.replace("/login");
+      }
+    } else if (isSupabaseConfigured()) {
+      void syncAppStateFromSupabase().then(() => {
+        computeBadges();
+      });
     }
+
+    const handleStateUpdated = () => {
+      computeBadges();
+    };
+    window.addEventListener("haiyo-state-updated", handleStateUpdated);
+
+    const intervalId = window.setInterval(() => {
+      if (isSupabaseConfigured()) {
+        void syncAppStateFromSupabase();
+      }
+    }, 6000);
+
+    return () => {
+      window.removeEventListener("haiyo-state-updated", handleStateUpdated);
+      window.clearInterval(intervalId);
+    };
   }, [router]);
 
   const handleLogout = async () => {
@@ -287,12 +349,20 @@ export function AppShell({
     router.replace("/login");
   };
 
+  const effectiveUnreadChat = Math.max(unreadChatCount, liveUnreadChat);
+  const effectiveUnreadLikes = Math.max(unreadLikesCount, liveUnreadLikes);
+  const effectiveHeaderProps: HeaderProps = {
+    ...headerProps,
+    hasUnreadNotifications:
+      Boolean(headerProps?.hasUnreadNotifications) || liveUnreadNotifs,
+  };
+
   return (
     <div className="min-h-dvh flex flex-col md:flex-row bg-[#f9f9fa] text-[#1d1d1d]">
-      <Sidebar onLogout={handleLogout} unreadChatCount={unreadChatCount} />
+      <Sidebar onLogout={handleLogout} unreadChatCount={effectiveUnreadChat} />
 
       <div className="flex-1 flex flex-col min-w-0 pb-[72px] md:pb-0">
-        <Header {...headerProps} />
+        <Header {...effectiveHeaderProps} />
         <main className="flex-1 w-full max-w-4xl mx-auto px-4 md:px-8 py-3.5 md:py-5">
           {children}
         </main>
@@ -306,8 +376,8 @@ export function AppShell({
       </div>
 
       <BottomNav
-        unreadChatCount={unreadChatCount}
-        unreadLikesCount={unreadLikesCount}
+        unreadChatCount={effectiveUnreadChat}
+        unreadLikesCount={effectiveUnreadLikes}
       />
     </div>
   );

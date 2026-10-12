@@ -21,8 +21,25 @@ import {
   loadAppState,
   LocalAppState,
   saveAppState,
+  syncAppStateFromSupabase,
 } from "@/lib/store/app-state";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { DiscoveryProfileCard } from "@/types/database";
+
+function formatChatPreviewText(content: string): string {
+  if (content === "[RECALLED_IMG]") return "🚫 Gambar telah ditarik";
+  if (content === "[RECALLED_MSG]") return "🚫 Pesan telah ditarik";
+  if (content.startsWith("[IMG]")) {
+    const body = content.slice(5).trim();
+    const newlineIdx = body.indexOf("\n");
+    if (newlineIdx !== -1) {
+      const caption = body.slice(newlineIdx + 1).trim();
+      if (caption) return `📷 ${caption}`;
+    }
+    return "📷 Mengirim gambar";
+  }
+  return content;
+}
 
 /**
  * Chat List Page (/chat) per UI/UX Sections 38 & 40:
@@ -51,6 +68,19 @@ export default function ChatListPage() {
 
   useEffect(() => {
     setAppState(loadAppState());
+    if (isSupabaseConfigured()) {
+      void syncAppStateFromSupabase().then((synced) => {
+        setAppState(synced);
+      });
+    }
+
+    const handleStateUpdated = () => {
+      setAppState(loadAppState());
+    };
+    window.addEventListener("haiyo-state-updated", handleStateUpdated);
+    return () => {
+      window.removeEventListener("haiyo-state-updated", handleStateUpdated);
+    };
   }, []);
 
   if (!appState) return null;
@@ -61,8 +91,15 @@ export default function ChatListPage() {
       !appState.blockedUserIds.includes(m.partner.id)
   );
 
-  const handleConfirmUnmatch = () => {
+  const handleConfirmUnmatch = async () => {
     if (!unmatchTarget) return;
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      await supabase
+        .from("matches")
+        .update({ status: "unmatched", unmatched_at: new Date().toISOString() })
+        .eq("id", unmatchTarget.matchId);
+    }
     const fresh = loadAppState();
     const updated: LocalAppState = {
       ...fresh,
@@ -81,8 +118,20 @@ export default function ChatListPage() {
     setUnmatchTarget(null);
   };
 
-  const handleConfirmBlock = () => {
+  const handleConfirmBlock = async () => {
     if (!blockTarget) return;
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("blocks").insert({
+          blocker_id: user.id,
+          blocked_id: blockTarget.partner.id,
+        });
+      }
+    }
     const fresh = loadAppState();
     const updated: LocalAppState = {
       ...fresh,
@@ -130,7 +179,10 @@ export default function ChatListPage() {
           <div className="space-y-2.5">
             {activeMatches.map((match) => {
               const msgs = appState.messages.filter(
-                (m) => m.match_id === match.id
+                (m) =>
+                  m.match_id === match.id &&
+                  m.content !== "[DELETED_IMG]" &&
+                  m.content !== "[DELETED_MSG]"
               );
               const lastMsg = msgs[msgs.length - 1] ?? null;
               const unreadCount = msgs.filter(
@@ -184,9 +236,15 @@ export default function ChatListPage() {
                       </div>
                       <Link
                         href={`/chat/${match.id}`}
-                        className="block text-[14px] text-[#6F7078] hover:text-[#1d1d1d] truncate mt-0.5"
+                        className={`block text-[14px] truncate mt-0.5 ${
+                          unreadCount > 0
+                            ? "font-semibold text-[#1d1d1d]"
+                            : "text-[#6F7078] hover:text-[#1d1d1d]"
+                        }`}
                       >
-                        {lastMsg ? lastMsg.content : "Saatnya mulai kenalan"}
+                        {lastMsg
+                          ? formatChatPreviewText(lastMsg.content)
+                          : "Saatnya mulai kenalan"}
                       </Link>
                     </div>
                   </div>
