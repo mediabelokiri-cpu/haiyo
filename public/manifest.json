@@ -1,0 +1,26 @@
+{
+  "name": "HAIYO — Ketemu orang baru, siapa tahu jadi sesuatu.",
+  "short_name": "HAIYO",
+  "description": "Aplikasi social discovery dan dating 18+. Ketemu orang baru, siapa tahu jadi sesuatu.",
+  "start_url": "/discover",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f9f9fa",
+  "theme_color": "#267a50",
+  "lang": "id-ID",
+  "icons": [
+    {
+      "src": "/logourlbar.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logourlbar.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
