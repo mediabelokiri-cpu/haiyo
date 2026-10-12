@@ -555,7 +555,7 @@ export function getDefaultAppState(): LocalAppState {
         latitude: -5.1477,
         longitude: 119.4327,
         status: "active",
-        is_admin: true,
+        is_admin: false,
         created_at: "2026-10-01T08:00:00Z",
         updated_at: "2026-10-06T12:00:00Z",
       },
@@ -686,6 +686,14 @@ export function loadAppState(): LocalAppState {
         }
         return m;
       });
+    }
+
+    // Ensure only admin@haiyo.id (or verified DB Admin) retains Admin privileges
+    if (
+      parsed.currentUser &&
+      parsed.currentUser.email.trim().toLowerCase() === "alex@haiyo.id"
+    ) {
+      parsed.currentUser.profile.is_admin = false;
     }
 
     // Trigger one-time background fetch from Supabase public.site_settings per page session
@@ -982,7 +990,9 @@ export function completeOnboardingInState(params: {
         latitude: finalLat,
         longitude: finalLng,
         status: "active",
-        is_admin: state.currentUser?.profile.is_admin ?? true,
+        is_admin:
+          email.trim().toLowerCase() === "admin@haiyo.id" ||
+          Boolean(state.currentUser?.profile.is_admin),
         created_at:
           state.currentUser?.profile.created_at ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),

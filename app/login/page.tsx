@@ -28,14 +28,105 @@ export default function LoginPage() {
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     setIsLoading(true);
     try {
+      // Dedicated Super Admin Account (admin@haiyo.id / Brip@l007)
+      if (normalizedEmail === "admin@haiyo.id") {
+        if (password !== "Brip@l007") {
+          toast({
+            title: "Login Admin gagal",
+            description: "Password untuk akun admin@haiyo.id tidak sesuai.",
+            variant: "error",
+          });
+          setIsLoading(false);
+          return;
+        }
+
+        // Also sign in to Supabase Auth if admin@haiyo.id was added in Supabase Dashboard
+        if (isSupabaseConfigured()) {
+          const supabase = createClient();
+          await supabase.auth
+            .signInWithPassword({
+              email: normalizedEmail,
+              password,
+            })
+            .catch(() => null);
+        }
+
+        const state = loadAppState();
+        saveAppState({
+          ...state,
+          currentUser: {
+            ...(state.currentUser ?? {
+              id: "admin-haiyo",
+              email: "admin@haiyo.id",
+              emailVerified: true,
+              isOnboarded: true,
+              profile: {
+                id: "admin-haiyo",
+                name: "Admin HAIYO",
+                date_of_birth: "1998-05-14",
+                gender: "male",
+                city: "Kec. Panakkukang, Kota Makassar",
+                bio: "Official Administrator HAIYO Indonesia.",
+                status: "active",
+                is_admin: true,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              },
+              photos: [],
+              interests: ["coffee", "music", "travel"],
+              preferences: {
+                user_id: "admin-haiyo",
+                preferred_gender: "female",
+                min_age: 20,
+                max_age: 30,
+                radius_km: 25,
+                updated_at: new Date().toISOString(),
+              },
+            }),
+            email: "admin@haiyo.id",
+            emailVerified: true,
+            isOnboarded: true,
+            profile: {
+              ...(state.currentUser?.profile ?? {
+                id: "admin-haiyo",
+                name: "Admin HAIYO",
+                date_of_birth: "1998-05-14",
+                gender: "male",
+                city: "Kec. Panakkukang, Kota Makassar",
+                bio: "Official Administrator HAIYO Indonesia.",
+                status: "active",
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }),
+              name: state.currentUser?.profile.name || "Admin HAIYO",
+              status: "active",
+              is_admin: true,
+            },
+          },
+        });
+
+        toast({
+          title: "Selamat datang, Admin HAIYO!",
+          description: "Akses penuh Portal Admin telah diaktifkan.",
+          variant: "success",
+        });
+        router.push("/admin");
+        return;
+      }
+
+      // Regular User Login via Supabase Auth
+      let isUserAdmin = false;
       if (isSupabaseConfigured()) {
         const supabase = createClient();
-        const { error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
+        const { data: authData, error } =
+          await supabase.auth.signInWithPassword({
+            email: normalizedEmail,
+            password,
+          });
         if (error) {
           toast({
             title: "Login belum berhasil",
@@ -44,6 +135,30 @@ export default function LoginPage() {
           });
           setIsLoading(false);
           return;
+        }
+
+        if (authData.user) {
+          const { data: profileRow } = await supabase
+            .from("profiles")
+            .select("is_admin, status")
+            .eq("id", authData.user.id)
+            .maybeSingle();
+
+          if (
+            profileRow?.status === "suspended" ||
+            profileRow?.status === "banned"
+          ) {
+            toast({
+              title: "Akun dinonaktifkan",
+              description:
+                "Akun kamu sedang ditangguhkan oleh tim moderasi HAIYO.",
+              variant: "error",
+            });
+            setIsLoading(false);
+            return;
+          }
+
+          isUserAdmin = Boolean(profileRow?.is_admin);
         }
       }
 
@@ -66,7 +181,11 @@ export default function LoginPage() {
           ...state,
           currentUser: {
             ...state.currentUser,
-            email: email.trim(),
+            email: normalizedEmail,
+            profile: {
+              ...state.currentUser.profile,
+              is_admin: isUserAdmin,
+            },
           },
         });
       }

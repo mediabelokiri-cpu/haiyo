@@ -73,39 +73,36 @@ export default function RegisterPage() {
       }
 
       const state = loadAppState();
+      const newUserId = `user-${Date.now()}`;
       saveAppState({
         ...state,
         currentUser: {
-          ...(state.currentUser ?? {
-            id: `user-${Date.now()}`,
-            email: email.trim(),
-            emailVerified: false,
-            isOnboarded: false,
-            profile: {
-              id: `user-${Date.now()}`,
-              name: "",
-              date_of_birth: "2002-01-01",
-              gender: "male",
-              city: "Makassar",
-              bio: "",
-              status: "active",
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-            photos: [],
-            interests: [],
-            preferences: {
-              user_id: `user-${Date.now()}`,
-              preferred_gender: "female",
-              min_age: 20,
-              max_age: 30,
-              radius_km: 25,
-              updated_at: new Date().toISOString(),
-            },
-          }),
-          email: email.trim(),
+          id: newUserId,
+          email: email.trim().toLowerCase(),
           emailVerified: false,
           isOnboarded: false,
+          profile: {
+            id: newUserId,
+            name: "",
+            date_of_birth: "2002-01-01",
+            gender: "male",
+            city: "Kec. Panakkukang, Kota Makassar",
+            bio: "",
+            status: "active",
+            is_admin: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          photos: [],
+          interests: [],
+          preferences: {
+            user_id: newUserId,
+            preferred_gender: "female",
+            min_age: 20,
+            max_age: 30,
+            radius_km: 25,
+            updated_at: new Date().toISOString(),
+          },
         },
       });
 

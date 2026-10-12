@@ -149,18 +149,33 @@ export default function AdminDashboardPage() {
   if (!appState) return null;
 
   // Enforce Admin authorization check
-  if (appState.currentUser && !appState.currentUser.profile.is_admin) {
+  if (!appState.currentUser?.profile.is_admin) {
     return (
-      <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-[#f9f9fa] text-center space-y-4">
-        <h1 className="text-[22px] font-bold text-[#1d1d1d]">
-          Akses Terbatas (Admin Only)
-        </h1>
-        <p className="text-[14px] text-[#6F7078]">
-          Kamu tidak memiliki otorisasi untuk mengakses halaman Admin HAIYO.
-        </p>
-        <Link href="/discover">
-          <Button variant="primary">Kembali ke Discover</Button>
-        </Link>
+      <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-[#f9f9fa] text-center">
+        <div className="w-full max-w-[420px] rounded-[24px] bg-white border border-[#E9E9EE] shadow-[0_4px_20px_rgba(0,0,0,0.06)] p-8 space-y-5">
+          <BrandLogo href="/" size="lg" />
+          <div className="space-y-2">
+            <h1 className="text-[22px] font-bold text-[#1d1d1d]">
+              Akses Terbatas (Admin Only)
+            </h1>
+            <p className="text-[14px] text-[#6F7078] leading-relaxed">
+              Silakan masuk menggunakan akun Administrator resmi HAIYO untuk
+              mengakses Portal Admin.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+            <Link href="/login" className="w-full sm:w-auto">
+              <Button variant="primary" fullWidth>
+                Login sebagai Admin
+              </Button>
+            </Link>
+            <Link href="/" className="w-full sm:w-auto">
+              <Button variant="secondary" fullWidth>
+                Kembali ke Beranda
+              </Button>
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
