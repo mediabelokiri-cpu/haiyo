@@ -118,8 +118,11 @@ export default function LoginPage() {
         return;
       }
 
-      // Regular User Login via Supabase Auth
+      // Regular User / DB Admin Login via Supabase Auth
       let isUserAdmin = false;
+      let isUserOnboarded = false;
+      const state = loadAppState();
+
       if (isSupabaseConfigured()) {
         const supabase = createClient();
         const { data: authData, error } =
@@ -127,7 +130,7 @@ export default function LoginPage() {
             email: normalizedEmail,
             password,
           });
-        if (error) {
+        if (error || !authData.user) {
           toast({
             title: "Login belum berhasil",
             description: "Periksa kembali email dan password kamu.",
@@ -137,54 +140,91 @@ export default function LoginPage() {
           return;
         }
 
-        if (authData.user) {
-          const { data: profileRow } = await supabase
-            .from("profiles")
-            .select("is_admin, status")
-            .eq("id", authData.user.id)
-            .maybeSingle();
+        const userId = authData.user.id;
+        const [
+          { data: profileRow },
+          { data: photoRows },
+          { data: prefRow },
+        ] = await Promise.all([
+          supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
+          supabase
+            .from("profile_photos")
+            .select("*")
+            .eq("user_id", userId)
+            .order("display_order", { ascending: true }),
+          supabase
+            .from("user_preferences")
+            .select("*")
+            .eq("user_id", userId)
+            .maybeSingle(),
+        ]);
 
-          if (
-            profileRow?.status === "suspended" ||
-            profileRow?.status === "banned"
-          ) {
-            toast({
-              title: "Akun dinonaktifkan",
-              description:
-                "Akun kamu sedang ditangguhkan oleh tim moderasi HAIYO.",
-              variant: "error",
-            });
-            setIsLoading(false);
-            return;
-          }
-
-          isUserAdmin = Boolean(profileRow?.is_admin);
+        if (
+          profileRow?.status === "suspended" ||
+          profileRow?.status === "banned"
+        ) {
+          toast({
+            title: "Akun dinonaktifkan",
+            description:
+              "Akun kamu sedang ditangguhkan oleh tim moderasi HAIYO.",
+            variant: "error",
+          });
+          setIsLoading(false);
+          return;
         }
-      }
 
-      const state = loadAppState();
-      if (
-        state.currentUser?.profile.status === "suspended" ||
-        state.currentUser?.profile.status === "banned"
-      ) {
-        toast({
-          title: "Akun dinonaktifkan",
-          description: "Akun kamu sedang ditangguhkan oleh tim moderasi HAIYO.",
-          variant: "error",
-        });
-        setIsLoading(false);
-        return;
-      }
+        isUserAdmin = Boolean(profileRow?.is_admin);
+        isUserOnboarded = Boolean(profileRow?.name && profileRow?.city);
 
-      if (state.currentUser) {
+        const mappedPhotos = (photoRows ?? []).map((ph, idx) => ({
+          id: ph.id ?? `ph-${idx}`,
+          user_id: userId,
+          storage_path: ph.storage_path,
+          public_url:
+            ph.storage_path.startsWith("http") ||
+            ph.storage_path.startsWith("data:")
+              ? ph.storage_path
+              : supabase.storage
+                  .from("profile-photos")
+                  .getPublicUrl(
+                    ph.storage_path.replace(/^profile-photos\//, "")
+                  ).data.publicUrl,
+          is_primary: Boolean(ph.is_primary ?? idx === 0),
+          display_order: ph.display_order ?? idx,
+          created_at: ph.created_at ?? new Date().toISOString(),
+        }));
+
         saveAppState({
           ...state,
           currentUser: {
-            ...state.currentUser,
+            id: userId,
             email: normalizedEmail,
+            emailVerified: Boolean(authData.user.email_confirmed_at ?? true),
+            isOnboarded: isUserOnboarded,
             profile: {
-              ...state.currentUser.profile,
+              id: userId,
+              name: profileRow?.name ?? "",
+              date_of_birth: profileRow?.date_of_birth ?? "",
+              gender: profileRow?.gender === "female" ? "female" : "male",
+              city: profileRow?.city ?? "",
+              bio: profileRow?.bio ?? "",
+              latitude: profileRow?.latitude ?? null,
+              longitude: profileRow?.longitude ?? null,
+              status: profileRow?.status ?? "active",
               is_admin: isUserAdmin,
+              created_at: profileRow?.created_at ?? new Date().toISOString(),
+              updated_at: profileRow?.updated_at ?? new Date().toISOString(),
+            },
+            photos: mappedPhotos,
+            interests: state.currentUser?.interests ?? [],
+            preferences: {
+              user_id: userId,
+              preferred_gender:
+                prefRow?.preferred_gender === "male" ? "male" : "female",
+              min_age: prefRow?.min_age ?? 20,
+              max_age: prefRow?.max_age ?? 30,
+              radius_km: prefRow?.radius_km ?? 25,
+              updated_at: prefRow?.updated_at ?? new Date().toISOString(),
             },
           },
         });
@@ -195,7 +235,9 @@ export default function LoginPage() {
         variant: "success",
       });
 
-      if (state.currentUser && !state.currentUser.isOnboarded) {
+      if (isUserAdmin) {
+        router.push("/admin");
+      } else if (!isUserOnboarded) {
         router.push("/onboarding");
       } else {
         router.push("/discover");

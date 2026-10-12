@@ -121,6 +121,17 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     const loaded = loadAppState();
+    const isAdmin = Boolean(
+      loaded.currentUser &&
+        (loaded.currentUser.email.trim().toLowerCase() === "admin@haiyo.id" ||
+          loaded.currentUser.profile.is_admin)
+    );
+
+    if (!isAdmin) {
+      router.replace("/login");
+      return;
+    }
+
     setAppState(loaded);
     setPaymentConfigDraft(loaded.paymentConfig ?? DEFAULT_PAYMENT_CONFIG);
     setHomepageDraft(loaded.homepageConfig ?? DEFAULT_HOMEPAGE_CONFIG);
@@ -270,7 +281,7 @@ export default function AdminDashboardPage() {
 
   if (!appState) return null;
 
-  // Enforce strict Admin authorization check
+  // Enforce strict Admin authorization check (redirects to unified /login)
   const isAuthorizedAdmin = Boolean(
     appState.currentUser &&
       (appState.currentUser.email.trim().toLowerCase() === "admin@haiyo.id" ||
@@ -278,35 +289,7 @@ export default function AdminDashboardPage() {
   );
 
   if (!isAuthorizedAdmin) {
-    return (
-      <div className="min-h-dvh flex flex-col items-center justify-center p-6 bg-[#f9f9fa] text-center">
-        <div className="w-full max-w-[420px] rounded-[24px] bg-white border border-[#E9E9EE] shadow-[0_4px_20px_rgba(0,0,0,0.06)] p-8 space-y-5">
-          <BrandLogo href="/" size="lg" />
-          <div className="space-y-2">
-            <h1 className="text-[22px] font-bold text-[#1d1d1d]">
-              Akses Terbatas (Admin Only)
-            </h1>
-            <p className="text-[14px] text-[#6F7078] leading-relaxed">
-              Silakan masuk menggunakan akun Administrator resmi HAIYO (
-              <strong className="text-[#1d1d1d]">admin@haiyo.id</strong>) untuk
-              mengakses Portal Admin.
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-            <Link href="/login" className="w-full sm:w-auto">
-              <Button variant="primary" fullWidth>
-                Login sebagai Admin
-              </Button>
-            </Link>
-            <Link href="/" className="w-full sm:w-auto">
-              <Button variant="secondary" fullWidth>
-                Kembali ke Beranda
-              </Button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   // Handle User Moderation Action (Suspend, Ban, Activate, Delete) via Server API
