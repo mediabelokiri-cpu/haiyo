@@ -36,26 +36,21 @@ export function BrandLogo({
 }: BrandLogoProps) {
   const sizeStyles = {
     sm: {
-      wordmark: "h-6 w-auto",
-      mark: "w-7 h-7",
+      wordmark: "h-[20px] sm:h-6 w-auto",
+      mark: "w-6 h-6 sm:w-7 sm:h-7",
     },
     md: {
-      wordmark: "h-7 sm:h-8 w-auto",
-      mark: "w-8 h-8",
+      wordmark: "h-[20px] sm:h-7 lg:h-8 w-auto",
+      mark: "w-7 h-7 sm:w-8 sm:h-8",
     },
     lg: {
-      wordmark: "h-9 sm:h-10 w-auto",
-      mark: "w-9 h-9",
+      wordmark: "h-7 sm:h-8 lg:h-9 w-auto",
+      mark: "w-8 h-8 sm:w-9 sm:h-9",
     },
   };
 
   const content = (
-    <span
-      className={cn(
-        "inline-flex items-center select-none shrink-0",
-        className
-      )}
-    >
+    <span className="inline-flex items-center select-none shrink-0">
       {showWordmark ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -70,13 +65,19 @@ export function BrandLogo({
     </span>
   );
 
-  if (!href) return content;
+  if (!href) {
+    return (
+      <span className={cn("inline-flex items-center", className)}>
+        {content}
+      </span>
+    );
+  }
 
   return (
     <Link
       href={href}
       aria-label="HAIYO Beranda"
-      className="inline-flex items-center focus-visible:outline-none"
+      className={cn("inline-flex items-center focus-visible:outline-none", className)}
     >
       {content}
     </Link>

@@ -137,10 +137,9 @@ export default function DownloadAppPage() {
   return (
     <div className="min-h-dvh flex flex-col bg-[#f9f9fa] text-[#1d1d1d]">
       {/* Top Navbar */}
-      <header className="sticky top-0 z-30 h-14 md:h-16 bg-white/95 backdrop-blur-md border-b border-[#E9E9EE]">
+      <header className="sticky top-0 z-30 h-[46px] md:h-16 bg-white/95 backdrop-blur-md border-b border-[#E9E9EE]">
         <div className="max-w-6xl mx-auto h-full px-4 md:px-8 flex items-center justify-between">
-          <BrandLogo href="/" size="sm" className="md:hidden" />
-          <BrandLogo href="/" size="md" className="hidden md:inline-flex" />
+          <BrandLogo href="/" size="md" />
 
           <div className="flex items-center gap-2.5">
             <Link

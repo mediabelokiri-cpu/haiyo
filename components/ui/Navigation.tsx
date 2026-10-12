@@ -49,18 +49,26 @@ export function Header({
   rightSlot,
 }: HeaderProps) {
   return (
-    <header className="sticky top-0 z-30 h-16 bg-white/95 backdrop-blur-md border-b border-[#E9E9EE] px-4 md:px-8 flex items-center justify-between pt-safe">
+    <header className="sticky top-0 z-30 h-[50px] md:h-16 bg-white/95 backdrop-blur-md border-b border-[#E9E9EE] px-4 md:px-8 flex items-center justify-between pt-safe">
       <div className="flex items-center gap-3 min-w-0">
-        {showBrand && !title ? (
-          <BrandLogo href="/discover" size="md" />
-        ) : (
+        {showBrand && (
+          <div className="md:hidden flex items-center shrink-0">
+            <BrandLogo href="/discover" size="sm" />
+          </div>
+        )}
+        {title ? (
           <div className="flex items-center gap-3 min-w-0">
-            <BrandLogo href="/discover" size="sm" className="md:hidden" />
-            <span className="h-4 w-px bg-[#E9E9EE] md:hidden shrink-0" />
-            <h1 className="text-[17px] sm:text-[18px] font-bold text-[#1d1d1d] truncate">
+            {showBrand && (
+              <span className="h-4 w-px bg-[#E9E9EE] md:hidden shrink-0" />
+            )}
+            <h1 className="text-[16px] sm:text-[18px] font-bold text-[#1d1d1d] truncate">
               {title}
             </h1>
           </div>
+        ) : (
+          <h1 className="hidden md:block text-[18px] font-bold text-[#1d1d1d] truncate">
+            Discover
+          </h1>
         )}
       </div>
 

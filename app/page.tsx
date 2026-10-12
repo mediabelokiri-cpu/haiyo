@@ -179,15 +179,14 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-dvh flex flex-col bg-[#f9f9fa] text-[#1d1d1d]">
-      {/* Top Navbar — Compact on Mobile (h-[50px]) so it fits phone screens cleanly */}
-      <header className="sticky top-0 z-40 h-[50px] lg:h-16 bg-white lg:bg-white/90 lg:backdrop-blur-md lg:border-b lg:border-[#E9E9EE]">
+      {/* Top Navbar — Compact on Mobile (h-[44px]) so it fits phone screens cleanly */}
+      <header className="sticky top-0 z-40 h-[44px] lg:h-16 bg-white lg:bg-white/90 lg:backdrop-blur-md lg:border-b lg:border-[#E9E9EE]">
         <div className="max-w-6xl mx-auto h-full px-4 md:px-8 flex items-center justify-between">
           <div
             onClick={() => handleSelectMobileSection("beranda")}
             className="cursor-pointer flex items-center"
           >
-            <BrandLogo href="/" size="sm" className="lg:hidden" />
-            <BrandLogo href="/" size="md" className="hidden lg:inline-flex" />
+            <BrandLogo href="/" size="md" />
           </div>
 
           {/* Desktop Navigation Links */}
@@ -235,17 +234,17 @@ export default function LandingPage() {
             className="lg:hidden p-1.5 -mr-1.5 text-[#267a50] focus-visible:outline-none cursor-pointer"
           >
             {mobileMenuOpen ? (
-              <X className="w-6 h-6 stroke-[2.4]" />
+              <X className="w-5 h-5 stroke-[2.4]" />
             ) : (
               <svg
                 viewBox="0 0 24 18"
                 fill="none"
-                className="w-[22px] h-[16px] text-[#267a50]"
+                className="w-[20px] h-[14px] text-[#267a50]"
                 aria-hidden="true"
               >
-                <rect x="0" y="0" width="24" height="2.8" rx="1.4" fill="currentColor" />
-                <rect x="0" y="7.5" width="24" height="2.8" rx="1.4" fill="currentColor" />
-                <rect x="0" y="15" width="24" height="2.8" rx="1.4" fill="currentColor" />
+                <rect x="0" y="0" width="24" height="2.6" rx="1.3" fill="currentColor" />
+                <rect x="0" y="7.6" width="24" height="2.6" rx="1.3" fill="currentColor" />
+                <rect x="0" y="15.2" width="24" height="2.6" rx="1.3" fill="currentColor" />
               </svg>
             )}
           </button>
