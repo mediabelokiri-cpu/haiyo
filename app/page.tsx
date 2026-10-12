@@ -179,14 +179,15 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-dvh flex flex-col bg-[#f9f9fa] text-[#1d1d1d]">
-      {/* Top Navbar — Matches UIUX/haiyomobile1.jpg on Mobile & Full Nav on Desktop */}
-      <header className="sticky top-0 z-40 h-[72px] lg:h-16 bg-white lg:bg-white/90 lg:backdrop-blur-md lg:border-b lg:border-[#E9E9EE]">
-        <div className="max-w-6xl mx-auto h-full px-6 md:px-8 flex items-center justify-between">
+      {/* Top Navbar — Compact on Mobile (h-[50px]) so it fits phone screens cleanly */}
+      <header className="sticky top-0 z-40 h-[50px] lg:h-16 bg-white lg:bg-white/90 lg:backdrop-blur-md lg:border-b lg:border-[#E9E9EE]">
+        <div className="max-w-6xl mx-auto h-full px-4 md:px-8 flex items-center justify-between">
           <div
             onClick={() => handleSelectMobileSection("beranda")}
-            className="cursor-pointer"
+            className="cursor-pointer flex items-center"
           >
-            <BrandLogo href="/" size="lg" />
+            <BrandLogo href="/" size="sm" className="lg:hidden" />
+            <BrandLogo href="/" size="md" className="hidden lg:inline-flex" />
           </div>
 
           {/* Desktop Navigation Links */}
@@ -225,26 +226,26 @@ export default function LandingPage() {
             </Link>
           </div>
 
-          {/* Mobile Hamburger Menu Button (#267a50 3 bars per UIUX/haiyomobile1.jpg) */}
+          {/* Compact Mobile Hamburger Menu Button (#267a50 3 bars) */}
           <button
             type="button"
             aria-label={mobileMenuOpen ? "Tutup menu navigasi" : "Buka menu navigasi"}
             aria-expanded={mobileMenuOpen}
             onClick={() => setMobileMenuOpen((prev) => !prev)}
-            className="lg:hidden p-2 -mr-2 text-[#267a50] focus-visible:outline-none cursor-pointer"
+            className="lg:hidden p-1.5 -mr-1.5 text-[#267a50] focus-visible:outline-none cursor-pointer"
           >
             {mobileMenuOpen ? (
-              <X className="w-8 h-8 stroke-[2.5]" />
+              <X className="w-6 h-6 stroke-[2.4]" />
             ) : (
               <svg
-                viewBox="0 0 28 22"
+                viewBox="0 0 24 18"
                 fill="none"
-                className="w-8 h-6 text-[#267a50]"
+                className="w-[22px] h-[16px] text-[#267a50]"
                 aria-hidden="true"
               >
-                <rect x="0" y="0" width="28" height="3.5" rx="1.75" fill="currentColor" />
-                <rect x="0" y="9" width="28" height="3.5" rx="1.75" fill="currentColor" />
-                <rect x="0" y="18" width="28" height="3.5" rx="1.75" fill="currentColor" />
+                <rect x="0" y="0" width="24" height="2.8" rx="1.4" fill="currentColor" />
+                <rect x="0" y="7.5" width="24" height="2.8" rx="1.4" fill="currentColor" />
+                <rect x="0" y="15" width="24" height="2.8" rx="1.4" fill="currentColor" />
               </svg>
             )}
           </button>
@@ -252,8 +253,8 @@ export default function LandingPage() {
 
         {/* Mobile Dropdown Navigation Drawer (Burger Menu) */}
         {mobileMenuOpen && (
-          <div className="lg:hidden bg-white border-b border-[#E9E9EE] shadow-[0_12px_28px_rgba(0,0,0,0.12)] px-6 py-5 space-y-4">
-            <nav className="flex flex-col space-y-2.5 text-[15px] font-semibold text-[#1d1d1d]">
+          <div className="lg:hidden bg-white border-b border-[#E9E9EE] shadow-[0_12px_28px_rgba(0,0,0,0.12)] px-5 py-4 space-y-3.5">
+            <nav className="flex flex-col space-y-2 text-[14px] font-semibold text-[#1d1d1d]">
               <button
                 type="button"
                 onClick={() => handleSelectMobileSection("beranda")}
@@ -314,11 +315,11 @@ export default function LandingPage() {
                 onClick={() => setMobileMenuOpen(false)}
                 className="py-1.5 text-[#267a50] font-bold"
               >
-                Download App (Android & iOS)
+                Install Aplikasi (Android & iOS)
               </Link>
             </nav>
 
-            <div className="pt-3 border-t border-[#E9E9EE] grid grid-cols-2 gap-3">
+            <div className="pt-3 border-t border-[#E9E9EE] grid grid-cols-2 gap-2.5">
               <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
                 <Button variant="secondary" size="sm" fullWidth>
                   Login
@@ -336,11 +337,11 @@ export default function LandingPage() {
 
       {/* Mobile Back-to-Beranda Bar when viewing a Burger Menu section on mobile */}
       {mobileSection !== "beranda" && (
-        <div className="lg:hidden bg-white border-b border-[#E9E9EE] px-6 py-3">
+        <div className="lg:hidden bg-white border-b border-[#E9E9EE] px-4 py-2.5">
           <button
             type="button"
             onClick={() => handleSelectMobileSection("beranda")}
-            className="inline-flex items-center gap-1.5 text-[14px] font-bold text-[#267a50] cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-[13px] font-bold text-[#267a50] cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Kembali ke Beranda</span>
@@ -352,11 +353,11 @@ export default function LandingPage() {
           1A. MOBILE BERANDA (< lg) — Single-Screen per UIUX/haiyomobile1.jpg
           ===================================================================== */}
       {mobileSection === "beranda" && (
-        <section className="lg:hidden flex-1 flex flex-col bg-white pt-4 overflow-hidden">
+        <section className="lg:hidden flex-1 flex flex-col bg-white pt-2 overflow-hidden">
           {/* Profile Card on White Top Canvas */}
-          <div className="px-7 flex justify-center relative z-20">
-            <div className="w-full max-w-[300px] sm:max-w-[325px]">
-              <div className="relative rounded-[24px] overflow-hidden bg-[#1d1d1d] shadow-[0_16px_38px_rgba(0,0,0,0.28)] aspect-[3/4]">
+          <div className="px-6 flex justify-center relative z-20">
+            <div className="w-full max-w-[268px] sm:max-w-[300px]">
+              <div className="relative rounded-[22px] overflow-hidden bg-[#1d1d1d] shadow-[0_14px_34px_rgba(0,0,0,0.26)] aspect-[3/4]">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={hp.heroCardPhotoUrl}
@@ -365,30 +366,30 @@ export default function LandingPage() {
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent" />
 
-                <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+                <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between">
                   <PremiumBadge />
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/45 backdrop-blur-sm text-white text-[11px] font-medium border border-white/15">
-                    <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/45 backdrop-blur-sm text-white text-[10px] font-medium border border-white/15">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E]" />
                     <span>Aktif di sekitar</span>
                   </span>
                 </div>
 
-                <div className="absolute bottom-0 inset-x-0 p-5 pb-8 text-white space-y-2">
+                <div className="absolute bottom-0 inset-x-0 p-4 pb-7 text-white space-y-1.5">
                   <div>
-                    <h2 className="text-[24px] font-bold leading-tight">
+                    <h2 className="text-[21px] font-bold leading-tight">
                       {hp.heroCardName}
                     </h2>
-                    <p className="text-[12px] text-white/85 flex items-center gap-1 mt-0.5">
-                      <MapPin className="w-3.5 h-3.5 text-[#67bf9a]" />
+                    <p className="text-[11px] text-white/85 flex items-center gap-1 mt-0.5">
+                      <MapPin className="w-3 h-3 text-[#67bf9a]" />
                       <span>{hp.heroCardLocation}</span>
                     </p>
                   </div>
 
-                  <p className="text-[13px] text-white/95 line-clamp-2 leading-snug">
+                  <p className="text-[12px] text-white/95 line-clamp-2 leading-snug">
                     &ldquo;{hp.heroCardBio}&rdquo;
                   </p>
 
-                  <div className="flex flex-wrap gap-1.5 pt-1">
+                  <div className="flex flex-wrap gap-1 pt-0.5">
                     <InterestChip label="Coffee" slug="coffee" interactive={false} />
                     <InterestChip label="Music" slug="music" interactive={false} />
                     <InterestChip label="Travel" slug="travel" interactive={false} />
@@ -397,8 +398,8 @@ export default function LandingPage() {
               </div>
 
               {/* Docked Pass & Like Pill Capsule */}
-              <div className="relative z-30 -mt-7 flex justify-center">
-                <div className="inline-flex items-center gap-3 px-3.5 py-2 rounded-full bg-white shadow-[0_10px_28px_rgba(0,0,0,0.22)]">
+              <div className="relative z-30 -mt-6 flex justify-center">
+                <div className="inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-white shadow-[0_8px_24px_rgba(0,0,0,0.20)]">
                   <PassButton aria-label="Contoh tombol Pass" />
                   <LikeButton aria-label="Contoh tombol Like" />
                 </div>
@@ -407,12 +408,12 @@ export default function LandingPage() {
           </div>
 
           {/* Curved Green Wave Arch (#267a50) Filling the Rest of the Mobile Screen */}
-          <div className="relative z-10 -mt-24 flex-1 flex flex-col">
+          <div className="relative z-10 -mt-20 flex-1 flex flex-col">
             <svg
               viewBox="0 0 400 72"
               preserveAspectRatio="none"
               shapeRendering="geometricPrecision"
-              className="w-full h-[58px] sm:h-[70px] -mb-[3px] block text-[#267a50] shrink-0"
+              className="w-full h-[52px] sm:h-[64px] -mb-[3px] block text-[#267a50] shrink-0"
               aria-hidden="true"
             >
               <path
@@ -421,33 +422,33 @@ export default function LandingPage() {
               />
             </svg>
 
-            <div className="flex-1 bg-[#267a50] text-white px-6 pt-16 sm:pt-20 pb-8 text-center flex flex-col items-center justify-between gap-8">
-              <div className="space-y-5 flex flex-col items-center">
-                <h1 className="text-[28px] sm:text-[32px] font-bold leading-[1.2] tracking-tight text-white">
+            <div className="flex-1 bg-[#267a50] text-white px-5 pt-12 sm:pt-16 pb-6 text-center flex flex-col items-center justify-between gap-5">
+              <div className="space-y-3.5 flex flex-col items-center">
+                <h1 className="text-[25px] sm:text-[30px] font-bold leading-[1.2] tracking-tight text-white">
                   {hp.heroTitle}
                   <br />
                   {hp.heroHighlight}
                 </h1>
 
-                <p className="text-[14px] sm:text-[15px] text-white/90 max-w-[310px] mx-auto leading-[1.55]">
+                <p className="text-[13px] sm:text-[14px] text-white/90 max-w-[300px] mx-auto leading-[1.5]">
                   Kenalan, ngobrol, dan lihat ke mana ceritanya berjalan.{" "}
                   <span className="italic">
                     semuanya dimulai dari satu sapaan santai.
                   </span>
                 </p>
 
-                <div className="pt-2">
+                <div className="pt-1">
                   <Link
                     href="/download"
-                    className="inline-flex items-center justify-center gap-2.5 px-10 py-3.5 rounded-full bg-white hover:bg-[#f9f9fa] text-[#267a50] text-[19px] font-extrabold tracking-tight shadow-[0_8px_24px_rgba(0,0,0,0.16)] active:scale-[0.97] transition-all"
+                    className="inline-flex items-center justify-center gap-2 px-8 py-3 rounded-full bg-white hover:bg-[#f9f9fa] text-[#267a50] text-[17px] font-extrabold tracking-tight shadow-[0_8px_24px_rgba(0,0,0,0.16)] active:scale-[0.97] transition-all"
                   >
-                    <Download className="w-5 h-5 stroke-[2.5] text-[#267a50]" />
+                    <Download className="w-4 h-4 stroke-[2.5] text-[#267a50]" />
                     <span>{hp.ctaButtonText || "Download App"}</span>
                   </Link>
                 </div>
               </div>
 
-              <p className="text-[12px] text-white/80 tracking-wide pt-2">
+              <p className="text-[11px] text-white/80 tracking-wide pt-1">
                 © 2026 HAIYO | Dikembangkan oleh{" "}
                 <a
                   href="https://labide.site/"
