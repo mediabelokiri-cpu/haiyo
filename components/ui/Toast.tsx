@@ -1,8 +1,13 @@
-"use client";
-
-import React, { createContext, useCallback, useContext, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { CheckCircle2, AlertCircle, Heart, Users, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { initPwaInstallListener } from "@/lib/pwa-install";
 
 export type ToastVariant = "success" | "error" | "like" | "match" | "info";
 
@@ -30,6 +35,10 @@ export function useToast() {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  useEffect(() => {
+    initPwaInstallListener();
+  }, []);
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((item) => item.id !== id));
