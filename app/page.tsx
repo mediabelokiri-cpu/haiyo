@@ -810,10 +810,7 @@ export default function LandingPage() {
           </div>
           <div className="flex flex-wrap items-center justify-center gap-5">
             <Link href="/download" className="hover:text-[#267a50] font-semibold">
-              Download App (Android & iOS)
-            </Link>
-            <Link href="/design-system" className="hover:text-[#267a50]">
-              Design System
+              Install Web App (Android & iOS)
             </Link>
             <span>Khusus 18+</span>
             <span>

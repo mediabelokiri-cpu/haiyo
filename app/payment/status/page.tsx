@@ -13,7 +13,6 @@ import {
   Crown,
   QrCode,
   Wallet,
-  Zap,
 } from "lucide-react";
 import { AppShell, Badge, Button, useToast } from "@/components/ui";
 import {
