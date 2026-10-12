@@ -249,6 +249,8 @@ export default function MatchesPage() {
                                 {lastMsg
                                   ? lastMsg.content === "[RECALLED_IMG]"
                                     ? "🚫 Gambar telah ditarik"
+                                    : lastMsg.content === "[RECALLED_MSG]"
+                                    ? "🚫 Pesan telah ditarik"
                                     : lastMsg.content.startsWith("[IMG]")
                                     ? "📷 Mengirim gambar"
                                     : lastMsg.content

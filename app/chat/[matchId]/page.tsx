@@ -422,6 +422,7 @@ export default function ChatRoomPage() {
           .from("messages")
           .update({ content: "[DELETED_IMG]" })
           .eq("id", msg.id);
+        await supabase.from("messages").delete().eq("id", msg.id);
       }
 
       const fresh = loadAppState();
@@ -439,6 +440,69 @@ export default function ChatRoomPage() {
     } catch {
       toast({
         title: "Gagal menghapus gambar",
+        variant: "error",
+      });
+    }
+  };
+
+  const handleRecallTextMessage = async (msg: MessageRecord) => {
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        await supabase
+          .from("messages")
+          .update({ content: "[RECALLED_MSG]" })
+          .eq("id", msg.id);
+      }
+
+      const fresh = loadAppState();
+      const updated: LocalAppState = {
+        ...fresh,
+        messages: fresh.messages.map((m) =>
+          m.id === msg.id ? { ...m, content: "[RECALLED_MSG]" } : m
+        ),
+      };
+      saveAppState(updated);
+      setAppState(updated);
+      toast({
+        title: "Pesan berhasil ditarik",
+        description: "Pesan telah ditarik dari percakapan untuk kedua pihak.",
+        variant: "info",
+      });
+    } catch {
+      toast({
+        title: "Gagal menarik pesan",
+        variant: "error",
+      });
+    }
+  };
+
+  const handleDeleteTextMessage = async (msg: MessageRecord) => {
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        await supabase
+          .from("messages")
+          .update({ content: "[DELETED_MSG]" })
+          .eq("id", msg.id);
+        await supabase.from("messages").delete().eq("id", msg.id);
+      }
+
+      const fresh = loadAppState();
+      const updated: LocalAppState = {
+        ...fresh,
+        messages: fresh.messages.filter((m) => m.id !== msg.id),
+      };
+      saveAppState(updated);
+      setAppState(updated);
+      toast({
+        title: "Pesan berhasil dihapus",
+        description: "Pesan telah dihapus dari ruang chat.",
+        variant: "success",
+      });
+    } catch {
+      toast({
+        title: "Gagal menghapus pesan",
         variant: "error",
       });
     }
@@ -616,6 +680,7 @@ export default function ChatRoomPage() {
         {conversationMessages.map((msg) => {
           const isMe = msg.sender_id === appState.currentUser?.id;
           const isRecalledImg = msg.content === "[RECALLED_IMG]";
+          const isRecalledMsg = msg.content === "[RECALLED_MSG]";
           const parsedImg = parseImageMessage(msg.content);
 
           return (
@@ -625,7 +690,7 @@ export default function ChatRoomPage() {
                 isMe ? "items-end" : "items-start"
               }`}
             >
-              {isRecalledImg ? (
+              {isRecalledImg || isRecalledMsg ? (
                 <div
                   className={`max-w-[78%] px-4 py-2.5 rounded-[18px] text-[13.5px] italic flex items-center gap-2 border ${
                     isMe
@@ -634,7 +699,11 @@ export default function ChatRoomPage() {
                   }`}
                 >
                   <Ban className="w-4 h-4 shrink-0 text-[#8C8D96]" />
-                  <span>Gambar telah ditarik</span>
+                  <span>
+                    {isRecalledImg
+                      ? "Gambar telah ditarik"
+                      : "Pesan telah ditarik"}
+                  </span>
                 </div>
               ) : parsedImg.isImage ? (
                 <div
@@ -692,13 +761,36 @@ export default function ChatRoomPage() {
                 </div>
               ) : (
                 <div
-                  className={`max-w-[78%] px-4 py-3 rounded-[18px] text-[15px] leading-relaxed break-words ${
+                  className={`max-w-[78%] px-4 py-3 rounded-[18px] text-[15px] leading-relaxed break-words space-y-2 ${
                     isMe
                       ? "bg-[#267a50] text-white rounded-br-[4px] shadow-sm"
                       : "bg-[#E9E9EE]/75 text-[#1d1d1d] rounded-bl-[4px]"
                   }`}
                 >
                   <p>{msg.content}</p>
+
+                  {isMe && (
+                    <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-white/15">
+                      <button
+                        type="button"
+                        onClick={() => handleRecallTextMessage(msg)}
+                        title="Tarik kembali pesan untuk semua orang"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-white text-[10.5px] font-semibold transition-colors cursor-pointer"
+                      >
+                        <RotateCcw className="w-2.5 h-2.5" />
+                        <span>Tarik</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTextMessage(msg)}
+                        title="Hapus pesan dari room chat"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/25 hover:bg-[#EF4444] text-white text-[10.5px] font-semibold transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-2.5 h-2.5" />
+                        <span>Hapus</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
