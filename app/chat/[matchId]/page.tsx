@@ -8,11 +8,14 @@ import {
   ArrowUp,
   Ban,
   CheckCheck,
+  Copy,
   Flag,
+  Heart,
   HeartOff,
   ImagePlus,
   Loader2,
   MoreHorizontal,
+  Reply,
   RotateCcw,
   ShieldBan,
   Smile,
@@ -75,23 +78,106 @@ const CHAT_EMOJIS = [
   "💯",
 ];
 
-function parseImageMessage(content: string): {
+interface ParsedChatMessage {
+  isLiked: boolean;
+  isRecalledImg: boolean;
+  isRecalledMsg: boolean;
+  replySender: string | null;
+  replySnippet: string | null;
   isImage: boolean;
   imageUrl: string;
-  caption: string;
-} {
-  if (!content.startsWith("[IMG]")) {
-    return { isImage: false, imageUrl: "", caption: content };
+  text: string;
+}
+
+function parseChatMessage(rawContent: string): ParsedChatMessage {
+  let working = rawContent;
+  let isLiked = false;
+
+  if (working.endsWith("\n[LIKED]")) {
+    isLiked = true;
+    working = working.slice(0, -8);
   }
-  const body = content.slice(5).trim();
-  const newlineIdx = body.indexOf("\n");
-  if (newlineIdx === -1) {
-    return { isImage: true, imageUrl: body, caption: "" };
+
+  if (working === "[RECALLED_IMG]") {
+    return {
+      isLiked,
+      isRecalledImg: true,
+      isRecalledMsg: false,
+      replySender: null,
+      replySnippet: null,
+      isImage: false,
+      imageUrl: "",
+      text: "",
+    };
   }
+
+  if (working === "[RECALLED_MSG]") {
+    return {
+      isLiked,
+      isRecalledImg: false,
+      isRecalledMsg: true,
+      replySender: null,
+      replySnippet: null,
+      isImage: false,
+      imageUrl: "",
+      text: "",
+    };
+  }
+
+  let replySender: string | null = null;
+  let replySnippet: string | null = null;
+
+  if (working.startsWith("[REPLY:")) {
+    const endBracketIdx = working.indexOf("]\n");
+    if (endBracketIdx !== -1) {
+      const header = working.slice(7, endBracketIdx);
+      const pipeIdx = header.indexOf("|");
+      if (pipeIdx !== -1) {
+        replySender = header.slice(0, pipeIdx).trim();
+        replySnippet = header.slice(pipeIdx + 1).trim();
+      } else {
+        replySnippet = header.trim();
+      }
+      working = working.slice(endBracketIdx + 2);
+    }
+  }
+
+  if (working.startsWith("[IMG]")) {
+    const body = working.slice(5).trim();
+    const newlineIdx = body.indexOf("\n");
+    if (newlineIdx === -1) {
+      return {
+        isLiked,
+        isRecalledImg: false,
+        isRecalledMsg: false,
+        replySender,
+        replySnippet,
+        isImage: true,
+        imageUrl: body,
+        text: "",
+      };
+    }
+    return {
+      isLiked,
+      isRecalledImg: false,
+      isRecalledMsg: false,
+      replySender,
+      replySnippet,
+      isImage: true,
+      imageUrl: body.slice(0, newlineIdx).trim(),
+      text: body.slice(newlineIdx + 1).trim(),
+    };
+  }
+
   return {
-    isImage: true,
-    imageUrl: body.slice(0, newlineIdx).trim(),
-    caption: body.slice(newlineIdx + 1).trim(),
+    isLiked,
+    isRecalledImg: false,
+    isRecalledMsg: false,
+    replySender,
+    replySnippet,
+    isImage: false,
+    imageUrl: "",
+    text: working,
   };
 }
 
@@ -111,6 +197,14 @@ export default function ChatRoomPage() {
   const [isSending, setIsSending] = useState(false);
   const [zoomedImageUrl, setZoomedImageUrl] = useState<string | null>(null);
 
+  // Long-press message action badge & reply state
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{
+    id: string;
+    senderName: string;
+    snippet: string;
+  } | null>(null);
+
   const [showSafetyMenu, setShowSafetyMenu] = useState(false);
   const [isProfileSheetOpen, setIsProfileSheetOpen] = useState(false);
   const [isUnmatchOpen, setIsUnmatchOpen] = useState(false);
@@ -119,6 +213,9 @@ export default function ChatRoomPage() {
 
   const bottomEndRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const pointerStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const fetchAndMarkRoomMessages = useCallback(async () => {
     if (!isSupabaseConfigured() || !matchId) return;
@@ -304,6 +401,7 @@ export default function ChatRoomPage() {
     const myId = appState.currentUser!.id;
     setIsSending(true);
     setShowEmojiPicker(false);
+    setActiveMenuMsgId(null);
 
     try {
       let finalContent = trimmed;
@@ -326,6 +424,16 @@ export default function ChatRoomPage() {
           ? `[IMG]${uploaded.publicUrl}\n${trimmed}`
           : `[IMG]${uploaded.publicUrl}`;
         handleClearPendingImage();
+      }
+
+      if (replyingTo) {
+        const safeSender = replyingTo.senderName.replace(/[\|\[\]\n]/g, " ").trim();
+        const safeSnippet = replyingTo.snippet
+          .replace(/[\|\[\]\n]/g, " ")
+          .trim()
+          .slice(0, 70);
+        finalContent = `[REPLY:${safeSender}|${safeSnippet}]\n${finalContent}`;
+        setReplyingTo(null);
       }
 
       setMessageText("");
@@ -378,7 +486,82 @@ export default function ChatRoomPage() {
     }
   };
 
+  const handleToggleLikeMessage = async (
+    msg: MessageRecord,
+    parsed: ParsedChatMessage
+  ) => {
+    setActiveMenuMsgId(null);
+    const nextContent = parsed.isLiked
+      ? msg.content.replace(/\n\[LIKED\]$/, "")
+      : `${msg.content}\n[LIKED]`;
+
+    try {
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        await supabase
+          .from("messages")
+          .update({ content: nextContent })
+          .eq("id", msg.id);
+      }
+
+      const fresh = loadAppState();
+      const updated: LocalAppState = {
+        ...fresh,
+        messages: fresh.messages.map((m) =>
+          m.id === msg.id ? { ...m, content: nextContent } : m
+        ),
+      };
+      saveAppState(updated);
+      setAppState(updated);
+    } catch {
+      // non-blocking
+    }
+  };
+
+  const handleReplyToMessage = (
+    msg: MessageRecord,
+    parsed: ParsedChatMessage,
+    isMe: boolean
+  ) => {
+    setActiveMenuMsgId(null);
+    const senderName = isMe
+      ? appState.currentUser?.profile.name ?? "Kamu"
+      : partner.name;
+    const snippet = parsed.isImage
+      ? parsed.text
+        ? `📷 ${parsed.text}`
+        : "📷 Foto"
+      : parsed.text;
+    setReplyingTo({
+      id: msg.id,
+      senderName,
+      snippet,
+    });
+    window.setTimeout(() => {
+      textInputRef.current?.focus();
+    }, 50);
+  };
+
+  const handleCopyMessage = async (parsed: ParsedChatMessage) => {
+    setActiveMenuMsgId(null);
+    const textToCopy = parsed.text || parsed.imageUrl;
+    if (!textToCopy) return;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      toast({
+        title: "Pesan disalin",
+        variant: "info",
+      });
+    } catch {
+      toast({
+        title: "Gagal menyalin pesan",
+        variant: "error",
+      });
+    }
+  };
+
   const handleRecallImage = async (msg: MessageRecord, imageUrl: string) => {
+    setActiveMenuMsgId(null);
     try {
       await deleteStoragePhotoIfPresent(imageUrl);
 
@@ -413,8 +596,11 @@ export default function ChatRoomPage() {
   };
 
   const handleDeleteImage = async (msg: MessageRecord, imageUrl: string) => {
+    setActiveMenuMsgId(null);
     try {
-      await deleteStoragePhotoIfPresent(imageUrl);
+      if (imageUrl) {
+        await deleteStoragePhotoIfPresent(imageUrl);
+      }
 
       if (isSupabaseConfigured()) {
         const supabase = createClient();
@@ -434,7 +620,7 @@ export default function ChatRoomPage() {
       setAppState(updated);
       toast({
         title: "Gambar berhasil dihapus",
-        description: "Gambar telah dihapus permanen dari ruang chat.",
+        description: "Gambar telah dihapus dari ruang chat.",
         variant: "success",
       });
     } catch {
@@ -446,6 +632,7 @@ export default function ChatRoomPage() {
   };
 
   const handleRecallTextMessage = async (msg: MessageRecord) => {
+    setActiveMenuMsgId(null);
     try {
       if (isSupabaseConfigured()) {
         const supabase = createClient();
@@ -478,6 +665,7 @@ export default function ChatRoomPage() {
   };
 
   const handleDeleteTextMessage = async (msg: MessageRecord) => {
+    setActiveMenuMsgId(null);
     try {
       if (isSupabaseConfigured()) {
         const supabase = createClient();
@@ -506,6 +694,38 @@ export default function ChatRoomPage() {
         variant: "error",
       });
     }
+  };
+
+  const startLongPress = (msgId: string, e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest("button")) return;
+    pointerStartPosRef.current = { x: e.clientX, y: e.clientY };
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(15);
+      }
+      setActiveMenuMsgId(msgId);
+    }, 380);
+  };
+
+  const moveLongPress = (e: React.PointerEvent) => {
+    if (!pointerStartPosRef.current || !longPressTimerRef.current) return;
+    const dx = Math.abs(e.clientX - pointerStartPosRef.current.x);
+    const dy = Math.abs(e.clientY - pointerStartPosRef.current.y);
+    if (dx > 10 || dy > 10) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    pointerStartPosRef.current = null;
   };
 
   const handleConfirmUnmatch = async () => {
@@ -571,7 +791,12 @@ export default function ChatRoomPage() {
   };
 
   return (
-    <div className="min-h-dvh flex flex-col bg-[#f9f9fa] text-[#1d1d1d]">
+    <div
+      onClick={() => {
+        if (activeMenuMsgId) setActiveMenuMsgId(null);
+      }}
+      className="min-h-dvh flex flex-col bg-[#f9f9fa] text-[#1d1d1d]"
+    >
       {/* Chat Header (UI/UX Section 39 & 41) */}
       <header className="sticky top-0 z-30 h-16 bg-white border-b border-[#E9E9EE] px-4 flex items-center justify-between pt-safe">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -666,7 +891,7 @@ export default function ChatRoomPage() {
       </header>
 
       {/* Messages Body */}
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-5 overflow-y-auto space-y-3">
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-5 overflow-y-auto space-y-3.5">
         <div className="text-center py-3">
           <button
             type="button"
@@ -679,18 +904,95 @@ export default function ChatRoomPage() {
 
         {conversationMessages.map((msg) => {
           const isMe = msg.sender_id === appState.currentUser?.id;
-          const isRecalledImg = msg.content === "[RECALLED_IMG]";
-          const isRecalledMsg = msg.content === "[RECALLED_MSG]";
-          const parsedImg = parseImageMessage(msg.content);
+          const parsed = parseChatMessage(msg.content);
+          const isRecalled = parsed.isRecalledImg || parsed.isRecalledMsg;
+          const isMenuOpen = activeMenuMsgId === msg.id;
 
           return (
             <div
               key={msg.id}
-              className={`flex flex-col ${
+              className={`relative flex flex-col ${
                 isMe ? "items-end" : "items-start"
               }`}
             >
-              {isRecalledImg || isRecalledMsg ? (
+              {/* Long-Press Floating Action Badge: Suka - Balas - Salin - Tarik - Hapus */}
+              {isMenuOpen && !isRecalled && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className={`mb-1.5 z-30 inline-flex items-center gap-1 p-1.5 rounded-full bg-[#1d1d1d]/95 backdrop-blur-md text-white shadow-[0_8px_24px_rgba(0,0,0,0.22)] border border-white/10 animate-in fade-in zoom-in-95 duration-150 ${
+                    isMe ? "self-end" : "self-start"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleToggleLikeMessage(msg, parsed)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11.5px] font-semibold transition-colors cursor-pointer ${
+                      parsed.isLiked
+                        ? "bg-[#EF4444]/20 text-[#EF4444]"
+                        : "hover:bg-white/15 text-white"
+                    }`}
+                  >
+                    <Heart
+                      className={`w-3.5 h-3.5 ${
+                        parsed.isLiked
+                          ? "fill-[#EF4444] text-[#EF4444]"
+                          : "text-white"
+                      }`}
+                    />
+                    <span>Suka</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleReplyToMessage(msg, parsed, isMe)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full hover:bg-white/15 text-white text-[11.5px] font-semibold transition-colors cursor-pointer"
+                  >
+                    <Reply className="w-3.5 h-3.5" />
+                    <span>Balas</span>
+                  </button>
+
+                  {!parsed.isImage && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyMessage(parsed)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full hover:bg-white/15 text-white text-[11.5px] font-semibold transition-colors cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Salin</span>
+                    </button>
+                  )}
+
+                  {isMe && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        parsed.isImage
+                          ? handleRecallImage(msg, parsed.imageUrl)
+                          : handleRecallTextMessage(msg)
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full hover:bg-white/15 text-white text-[11.5px] font-semibold transition-colors cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Tarik</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      parsed.isImage
+                        ? handleDeleteImage(msg, isMe ? parsed.imageUrl : "")
+                        : handleDeleteTextMessage(msg)
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full hover:bg-[#EF4444] text-[#FCA5A5] hover:text-white text-[11.5px] font-semibold transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Hapus</span>
+                  </button>
+                </div>
+              )}
+
+              {isRecalled ? (
                 <div
                   className={`max-w-[78%] px-4 py-2.5 rounded-[18px] text-[13.5px] italic flex items-center gap-2 border ${
                     isMe
@@ -700,101 +1002,131 @@ export default function ChatRoomPage() {
                 >
                   <Ban className="w-4 h-4 shrink-0 text-[#8C8D96]" />
                   <span>
-                    {isRecalledImg
+                    {parsed.isRecalledImg
                       ? "Gambar telah ditarik"
                       : "Pesan telah ditarik"}
                   </span>
                 </div>
-              ) : parsedImg.isImage ? (
+              ) : parsed.isImage ? (
                 <div
-                  className={`max-w-[78%] sm:max-w-[300px] p-2 rounded-[20px] space-y-2 ${
+                  onPointerDown={(e) => startLongPress(msg.id, e)}
+                  onPointerMove={moveLongPress}
+                  onPointerUp={cancelLongPress}
+                  onPointerCancel={cancelLongPress}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setActiveMenuMsgId(msg.id);
+                  }}
+                  className={`relative max-w-[78%] sm:max-w-[300px] p-2 rounded-[20px] space-y-1.5 select-none transition-transform ${
+                    isMenuOpen ? "ring-2 ring-[#267a50] scale-[0.99]" : ""
+                  } ${
                     isMe
                       ? "bg-[#267a50] text-white rounded-br-[4px] shadow-sm"
                       : "bg-white border border-[#E9E9EE] text-[#1d1d1d] rounded-bl-[4px] shadow-sm"
                   }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setZoomedImageUrl(parsedImg.imageUrl)}
+                  {parsed.replySnippet && (
+                    <div
+                      className={`px-2.5 py-1.5 rounded-[12px] text-[12px] border-l-2 ${
+                        isMe
+                          ? "bg-black/15 border-white/80 text-white/90"
+                          : "bg-[#f9f9fa] border-[#267a50] text-[#6F7078]"
+                      }`}
+                    >
+                      {parsed.replySender && (
+                        <p className="font-bold text-[11px] truncate">
+                          {parsed.replySender}
+                        </p>
+                      )}
+                      <p className="truncate">{parsed.replySnippet}</p>
+                    </div>
+                  )}
+
+                  <div
+                    onClick={() => {
+                      if (!isMenuOpen) setZoomedImageUrl(parsed.imageUrl);
+                    }}
                     className="block w-full overflow-hidden rounded-[14px] bg-black/5 cursor-pointer"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={parsedImg.imageUrl}
+                      src={parsed.imageUrl}
                       alt="Foto percakapan"
+                      draggable={false}
                       className="w-full max-h-[280px] object-cover hover:opacity-95 transition-opacity"
                     />
-                  </button>
+                  </div>
 
-                  {parsedImg.caption && (
+                  {parsed.text && (
                     <p className="px-2 pb-1 text-[14.5px] leading-relaxed break-words">
-                      {parsedImg.caption}
+                      {parsed.text}
                     </p>
                   )}
 
-                  {isMe && (
-                    <div className="flex items-center justify-end gap-1.5 pt-1 px-1 border-t border-white/15">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleRecallImage(msg, parsedImg.imageUrl)
-                        }
-                        title="Tarik kembali gambar untuk semua orang"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/15 hover:bg-white/25 text-white text-[11px] font-semibold transition-colors cursor-pointer"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>Tarik</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleDeleteImage(msg, parsedImg.imageUrl)
-                        }
-                        title="Hapus gambar dari room chat"
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-black/25 hover:bg-[#EF4444] text-white text-[11px] font-semibold transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Hapus</span>
-                      </button>
-                    </div>
+                  {parsed.isLiked && (
+                    <span
+                      className={`absolute -bottom-2.5 ${
+                        isMe ? "left-2" : "right-2"
+                      } px-1.5 py-0.5 rounded-full bg-white border border-[#E9E9EE] shadow-sm text-[11px] leading-none flex items-center justify-center`}
+                    >
+                      ❤️
+                    </span>
                   )}
                 </div>
               ) : (
                 <div
-                  className={`max-w-[78%] px-4 py-3 rounded-[18px] text-[15px] leading-relaxed break-words space-y-2 ${
+                  onPointerDown={(e) => startLongPress(msg.id, e)}
+                  onPointerMove={moveLongPress}
+                  onPointerUp={cancelLongPress}
+                  onPointerCancel={cancelLongPress}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setActiveMenuMsgId(msg.id);
+                  }}
+                  className={`relative max-w-[78%] px-4 py-2.5 rounded-[18px] text-[15px] leading-relaxed break-words space-y-1.5 select-none transition-transform ${
+                    isMenuOpen ? "ring-2 ring-[#267a50] scale-[0.99]" : ""
+                  } ${
                     isMe
                       ? "bg-[#267a50] text-white rounded-br-[4px] shadow-sm"
                       : "bg-[#E9E9EE]/75 text-[#1d1d1d] rounded-bl-[4px]"
                   }`}
                 >
-                  <p>{msg.content}</p>
-
-                  {isMe && (
-                    <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-white/15">
-                      <button
-                        type="button"
-                        onClick={() => handleRecallTextMessage(msg)}
-                        title="Tarik kembali pesan untuk semua orang"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-white text-[10.5px] font-semibold transition-colors cursor-pointer"
-                      >
-                        <RotateCcw className="w-2.5 h-2.5" />
-                        <span>Tarik</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTextMessage(msg)}
-                        title="Hapus pesan dari room chat"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/25 hover:bg-[#EF4444] text-white text-[10.5px] font-semibold transition-colors cursor-pointer"
-                      >
-                        <Trash2 className="w-2.5 h-2.5" />
-                        <span>Hapus</span>
-                      </button>
+                  {parsed.replySnippet && (
+                    <div
+                      className={`px-2.5 py-1.5 rounded-[10px] text-[12px] border-l-2 ${
+                        isMe
+                          ? "bg-black/15 border-white/80 text-white/90"
+                          : "bg-white/75 border-[#267a50] text-[#6F7078]"
+                      }`}
+                    >
+                      {parsed.replySender && (
+                        <p className="font-bold text-[11px] truncate">
+                          {parsed.replySender}
+                        </p>
+                      )}
+                      <p className="truncate">{parsed.replySnippet}</p>
                     </div>
+                  )}
+
+                  <p>{parsed.text}</p>
+
+                  {parsed.isLiked && (
+                    <span
+                      className={`absolute -bottom-2.5 ${
+                        isMe ? "left-2" : "right-2"
+                      } px-1.5 py-0.5 rounded-full bg-white border border-[#E9E9EE] shadow-sm text-[11px] leading-none flex items-center justify-center`}
+                    >
+                      ❤️
+                    </span>
                   )}
                 </div>
               )}
 
-              <div className="flex items-center gap-1 mt-1 px-1 text-[11px] text-[#6F7078]">
+              <div
+                className={`flex items-center gap-1 ${
+                  parsed.isLiked ? "mt-2.5" : "mt-1"
+                } px-1 text-[11px] text-[#6F7078]`}
+              >
                 <span>
                   {new Date(msg.created_at).toLocaleTimeString("id-ID", {
                     hour: "2-digit",
@@ -819,7 +1151,29 @@ export default function ChatRoomPage() {
       {/* Message Composer (Only active matches can chat per PRD Section 20 & 21) */}
       <footer className="sticky bottom-0 bg-white border-t border-[#E9E9EE] p-3 pb-safe z-20">
         {isMatchActive ? (
-          <div className="max-w-2xl mx-auto space-y-2.5">
+          <div className="max-w-2xl mx-auto space-y-2">
+            {/* Replying-To Quote Bar */}
+            {replyingTo && (
+              <div className="flex items-center justify-between gap-3 px-3.5 py-2 rounded-[14px] bg-[#eaf5ef] border-l-4 border-[#267a50]">
+                <div className="min-w-0">
+                  <p className="text-[11.5px] font-bold text-[#267a50] truncate">
+                    Membalas {replyingTo.senderName}
+                  </p>
+                  <p className="text-[12.5px] text-[#1d1d1d] truncate">
+                    {replyingTo.snippet}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo(null)}
+                  aria-label="Batalkan balas pesan"
+                  className="w-7 h-7 rounded-full bg-white/80 hover:bg-white text-[#6F7078] hover:text-[#1d1d1d] flex items-center justify-center shrink-0 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Pending Image Preview Bar */}
             {pendingImagePreview && (
               <div className="flex items-center justify-between gap-3 p-2.5 rounded-[16px] bg-[#eaf5ef] border border-[#267a50]/25">
@@ -923,12 +1277,15 @@ export default function ChatRoomPage() {
               </button>
 
               <input
+                ref={textInputRef}
                 type="text"
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 placeholder={
                   pendingImageFile
                     ? "Tambah keterangan foto (opsional)..."
+                    : replyingTo
+                    ? `Balas ke ${replyingTo.senderName}...`
                     : "Tulis pesan..."
                 }
                 className="flex-1 min-w-0 h-12 rounded-full bg-[#f9f9fa] border border-[#E9E9EE] px-4 text-[15px] text-[#1d1d1d] placeholder:text-[#A0A0A8] focus:outline-none focus:border-[#267a50]"

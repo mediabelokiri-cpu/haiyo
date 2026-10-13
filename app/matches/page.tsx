@@ -246,15 +246,25 @@ export default function MatchesPage() {
                                 href={`/chat/${match.id}`}
                                 className="block text-[13px] text-[#6F7078] hover:text-[#1d1d1d] truncate mt-0.5"
                               >
-                                {lastMsg
-                                  ? lastMsg.content === "[RECALLED_IMG]"
-                                    ? "🚫 Gambar telah ditarik"
-                                    : lastMsg.content === "[RECALLED_MSG]"
-                                    ? "🚫 Pesan telah ditarik"
-                                    : lastMsg.content.startsWith("[IMG]")
-                                    ? "📷 Mengirim gambar"
-                                    : lastMsg.content
-                                  : "Kalian saling suka! Mulai sapa sekarang."}
+                                {(() => {
+                                  if (!lastMsg) {
+                                    return "Kalian saling suka! Mulai sapa sekarang.";
+                                  }
+                                  let w = lastMsg.content.endsWith("\n[LIKED]")
+                                    ? lastMsg.content.slice(0, -8)
+                                    : lastMsg.content;
+                                  if (w === "[RECALLED_IMG]")
+                                    return "🚫 Gambar telah ditarik";
+                                  if (w === "[RECALLED_MSG]")
+                                    return "🚫 Pesan telah ditarik";
+                                  if (w.startsWith("[REPLY:")) {
+                                    const endIdx = w.indexOf("]\n");
+                                    if (endIdx !== -1) w = w.slice(endIdx + 2);
+                                  }
+                                  if (w.startsWith("[IMG]"))
+                                    return "📷 Mengirim gambar";
+                                  return w;
+                                })()}
                               </Link>
                             </div>
                           </div>

@@ -27,10 +27,17 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { DiscoveryProfileCard } from "@/types/database";
 
 function formatChatPreviewText(content: string): string {
-  if (content === "[RECALLED_IMG]") return "🚫 Gambar telah ditarik";
-  if (content === "[RECALLED_MSG]") return "🚫 Pesan telah ditarik";
-  if (content.startsWith("[IMG]")) {
-    const body = content.slice(5).trim();
+  let working = content.endsWith("\n[LIKED]") ? content.slice(0, -8) : content;
+  if (working === "[RECALLED_IMG]") return "🚫 Gambar telah ditarik";
+  if (working === "[RECALLED_MSG]") return "🚫 Pesan telah ditarik";
+  if (working.startsWith("[REPLY:")) {
+    const endIdx = working.indexOf("]\n");
+    if (endIdx !== -1) {
+      working = working.slice(endIdx + 2);
+    }
+  }
+  if (working.startsWith("[IMG]")) {
+    const body = working.slice(5).trim();
     const newlineIdx = body.indexOf("\n");
     if (newlineIdx !== -1) {
       const caption = body.slice(newlineIdx + 1).trim();
@@ -38,7 +45,7 @@ function formatChatPreviewText(content: string): string {
     }
     return "📷 Mengirim gambar";
   }
-  return content;
+  return working;
 }
 
 /**
