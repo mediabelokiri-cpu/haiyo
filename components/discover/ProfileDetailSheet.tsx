@@ -91,12 +91,14 @@ export function ProfileDetailSheet({
         setPhotoIndex(0);
         onClose();
       }}
-      title={`${profile.name}, ${profile.age}`}
-      description={
+      title={`${profile.name}, ${profile.age}${profile.is_online ? " 🟢" : ""}`}
+      description={`${
+        profile.is_online ? "Online di " : "Lokasi aktif: "
+      }${profile.city}${
         profile.approx_distance_km
-          ? `${profile.city} · ±${profile.approx_distance_km} km away`
-          : profile.city
-      }
+          ? ` · ±${profile.approx_distance_km} km away`
+          : ""
+      }`}
     >
       <div className="space-y-4">
         {/* Photo Carousel with Top-Right Safety Menu */}

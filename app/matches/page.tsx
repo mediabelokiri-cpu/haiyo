@@ -222,7 +222,7 @@ export default function MatchesPage() {
                                 name={match.partner.name}
                                 src={primaryPhoto}
                                 size="md"
-                                isOnline
+                                isOnline={Boolean(match.partner.is_online)}
                               />
                             </button>
 

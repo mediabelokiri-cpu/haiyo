@@ -31,6 +31,7 @@ import {
   UnmatchConfirmModal,
 } from "@/components/safety/SafetyModals";
 import {
+  formatOnlineStatusLabel,
   loadAppState,
   LocalAppState,
   saveAppState,
@@ -323,9 +324,16 @@ export default function ChatRoomPage() {
       void fetchAndMarkRoomMessages();
     }, 3500);
 
+    const presenceInterval = window.setInterval(() => {
+      void syncAppStateFromSupabase().then((synced) => {
+        setAppState(synced);
+      });
+    }, 12000);
+
     return () => {
       supabase.removeChannel(channel);
       window.clearInterval(pollInterval);
+      window.clearInterval(presenceInterval);
     };
   }, [matchId, fetchAndMarkRoomMessages]);
 
@@ -815,14 +823,27 @@ export default function ChatRoomPage() {
             title={`Klik untuk melihat profil ${partner.name}`}
             className="flex items-center gap-3 min-w-0 px-2 py-1 rounded-[14px] hover:bg-[#eaf5ef] transition-colors text-left group cursor-pointer"
           >
-            <Avatar name={partner.name} src={partnerPhoto} size="sm" isOnline />
+            <Avatar
+              name={partner.name}
+              src={partnerPhoto}
+              size="sm"
+              isOnline={Boolean(partner.is_online)}
+            />
 
             <div className="min-w-0">
               <h1 className="text-[16px] font-bold text-[#1d1d1d] truncate group-hover:text-[#267a50] transition-colors">
                 {partner.name}, {partner.age}
               </h1>
-              <p className="text-[12px] text-[#22C55E] font-medium">
-                Online · {partner.city}
+              <p
+                className={`text-[12px] font-medium truncate ${
+                  partner.is_online ? "text-[#22C55E]" : "text-[#6F7078]"
+                }`}
+              >
+                {formatOnlineStatusLabel(
+                  partner.last_active_at,
+                  partner.is_online
+                )}{" "}
+                · {partner.city}
               </p>
             </div>
           </button>

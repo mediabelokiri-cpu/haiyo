@@ -729,13 +729,24 @@ export default function DiscoverPage() {
                     }}
                     className="pointer-events-auto text-left group cursor-pointer"
                   >
-                    <h2 className="text-[25px] font-bold leading-tight tracking-tight group-hover:underline">
-                      {currentProfile.name}, {currentProfile.age}
+                    <h2 className="text-[25px] font-bold leading-tight tracking-tight group-hover:underline flex items-center gap-2">
+                      <span>
+                        {currentProfile.name}, {currentProfile.age}
+                      </span>
+                      {currentProfile.is_online && (
+                        <span
+                          title="Sedang Online"
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#22C55E]/25 border border-[#22C55E]/50 text-[#4ADE80] text-[11px] font-bold tracking-normal"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
+                          <span>Online</span>
+                        </span>
+                      )}
                     </h2>
                   </button>
                   <p className="text-[13px] text-white/85 flex items-center gap-1 mt-0.5">
-                    <MapPin className="w-3.5 h-3.5 text-[#267a50]" />
-                    <span>
+                    <MapPin className="w-3.5 h-3.5 text-[#267a50] shrink-0" />
+                    <span className="truncate">
                       {currentProfile.city}
                       {currentProfile.approx_distance_km
                         ? ` · ±${currentProfile.approx_distance_km} km away`

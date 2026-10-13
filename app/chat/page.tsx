@@ -221,7 +221,7 @@ export default function ChatListPage() {
                         name={match.partner.name}
                         src={photo}
                         size="md"
-                        isOnline
+                        isOnline={Boolean(match.partner.is_online)}
                       />
                     </button>
 

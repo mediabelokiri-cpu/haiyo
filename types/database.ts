@@ -231,6 +231,10 @@ export interface DiscoveryProfileCard {
   approx_distance_km: number | null;
   bio: string;
   is_premium: boolean;
+  /** True when user was active within the last ~90 seconds */
+  is_online?: boolean;
+  /** ISO timestamp of last activity */
+  last_active_at?: string;
   photos: Array<{
     id: string;
     storage_path: string;

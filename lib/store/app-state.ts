@@ -494,6 +494,142 @@ export function computeCandidateDistanceKm(
   return 15;
 }
 
+export function isUserOnline(lastActiveAt?: string | null): boolean {
+  if (!lastActiveAt) return false;
+  const ts = new Date(lastActiveAt).getTime();
+  if (Number.isNaN(ts)) return false;
+  return Date.now() - ts <= 90 * 1000;
+}
+
+export function formatOnlineStatusLabel(
+  lastActiveAt?: string | null,
+  isOnlineFlag?: boolean
+): string {
+  if (isOnlineFlag || isUserOnline(lastActiveAt)) {
+    return "Online";
+  }
+  if (!lastActiveAt) return "Offline";
+  const ts = new Date(lastActiveAt).getTime();
+  if (Number.isNaN(ts)) return "Offline";
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diffSec < 60) return "Online";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `Aktif ${diffMin} mnt lalu`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `Aktif ${diffHr} jam lalu`;
+  return "Offline";
+}
+
+let lastHeartbeatSentAt = 0;
+let lastGeoLocationSentAt = 0;
+
+async function reverseGeocodeToCityLabel(
+  lat: number,
+  lon: number
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&accept-language=id`,
+      {
+        headers: {
+          Accept: "application/json",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const addr = data?.address;
+    if (!addr) return null;
+
+    const rawDistrict =
+      addr.city_district ||
+      addr.municipality ||
+      addr.town ||
+      addr.suburb ||
+      addr.village ||
+      addr.hamlet ||
+      "";
+    const rawCity = addr.city || "";
+    const rawRegency =
+      addr.county || addr.regency || addr.state_district || "";
+
+    let part1 = "";
+    if (rawDistrict) {
+      part1 = /^kec(\.|amatan)?\s+/i.test(rawDistrict)
+        ? rawDistrict.replace(/^kecamatan\s+/i, "Kec. ")
+        : `Kec. ${rawDistrict}`;
+    }
+
+    let part2 = "";
+    if (rawCity) {
+      part2 = /^kota\s+/i.test(rawCity) ? rawCity : `Kota ${rawCity}`;
+    } else if (rawRegency) {
+      part2 = /^kab(\.|upaten)?\s+/i.test(rawRegency)
+        ? rawRegency.replace(/^kabupaten\s+/i, "Kab. ")
+        : `Kab. ${rawRegency}`;
+    } else if (addr.state) {
+      part2 = String(addr.state);
+    }
+
+    if (part1 && part2) return `${part1}, ${part2}`;
+    if (part2) return part2;
+    if (part1) return part1;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function touchLivePresenceAndLocation(userId: string): Promise<void> {
+  if (typeof window === "undefined" || !isSupabaseConfigured()) return;
+  const now = Date.now();
+  const supabase = createClient();
+
+  // 1. Update online heartbeat timestamp every 18 seconds
+  if (now - lastHeartbeatSentAt >= 18000) {
+    lastHeartbeatSentAt = now;
+    void supabase
+      .from("profiles")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", userId);
+  }
+
+  // 2. Sync live active GPS location -> Kecamatan & Kabupaten/Kota every 2 minutes
+  if (
+    now - lastGeoLocationSentAt >= 120000 &&
+    typeof navigator !== "undefined" &&
+    "geolocation" in navigator
+  ) {
+    lastGeoLocationSentAt = now;
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lon = Number(pos.coords.longitude.toFixed(6));
+        const liveCity = await reverseGeocodeToCityLabel(lat, lon);
+
+        const updatePayload: Record<string, unknown> = {
+          latitude: lat,
+          longitude: lon,
+          updated_at: new Date().toISOString(),
+        };
+        if (liveCity) {
+          updatePayload.city = liveCity;
+        }
+
+        await supabase.from("profiles").update(updatePayload).eq("id", userId);
+      },
+      () => {
+        // User denied or GPS unavailable: keep existing saved location
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 7000,
+        maximumAge: 60000,
+      }
+    );
+  }
+}
+
 export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
   if (typeof window === "undefined" || !isSupabaseConfigured()) {
     return loadAppState();
@@ -537,6 +673,7 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
     } = await supabase.auth.getUser();
 
     if (user) {
+      void touchLivePresenceAndLocation(user.id);
       const [
         { data: profileRow },
         { data: prefRow },
@@ -868,6 +1005,8 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
             approx_distance_km: distKm,
             bio: prof.bio || "Halo! Salam kenal di HAIYO.",
             is_premium: premiumUserSet.has(prof.id),
+            is_online: isUserOnline(prof.updated_at),
+            last_active_at: prof.updated_at,
             photos: resolvedPhotos,
             interests:
               resolvedInterests.length > 0
