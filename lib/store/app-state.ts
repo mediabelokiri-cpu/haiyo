@@ -441,6 +441,18 @@ export function loadAppState(): LocalAppState {
       parsed.currentUser.profile.is_admin = false;
     }
 
+    // Defensive array safety for legacy or partially updated localStorage records
+    parsed.payments = Array.isArray(parsed.payments) ? parsed.payments : [];
+    parsed.subscriptions = Array.isArray(parsed.subscriptions)
+      ? parsed.subscriptions
+      : [];
+    parsed.notifications = Array.isArray(parsed.notifications)
+      ? parsed.notifications
+      : [];
+    parsed.matches = Array.isArray(parsed.matches) ? parsed.matches : [];
+    parsed.messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+    parsed.reports = Array.isArray(parsed.reports) ? parsed.reports : [];
+
     // Trigger one-time background fetch from Supabase public.site_settings per page session
     if (isSupabaseConfigured() && !hasSyncedSiteSettings) {
       hasSyncedSiteSettings = true;

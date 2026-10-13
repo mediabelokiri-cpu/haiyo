@@ -122,6 +122,20 @@ export default function AdminDashboardPage() {
   const [inspectedUser, setInspectedUser] = useState<ManagedUserRow | null>(
     null
   );
+  const [inspectedProof, setInspectedProof] = useState<{
+    proofUrl: string;
+    orderId: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    planName: string;
+    durationDays: number;
+    amount: number;
+    paymentMethod: string;
+    status: string;
+    userConfirmedAt?: string | null;
+    createdAt: string;
+  } | null>(null);
 
   useEffect(() => {
     const loaded = loadAppState();
@@ -519,21 +533,6 @@ export default function AdminDashboardPage() {
       variant: "success",
     });
   };
-
-  const [inspectedProof, setInspectedProof] = useState<{
-    proofUrl: string;
-    orderId: string;
-    userId: string;
-    userName: string;
-    userEmail: string;
-    planName: string;
-    durationDays: number;
-    amount: number;
-    paymentMethod: string;
-    status: string;
-    userConfirmedAt?: string | null;
-    createdAt: string;
-  } | null>(null);
 
   // Helper to resolve user's display name, email, avatar
   const resolveUserDisplay = (
