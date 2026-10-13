@@ -100,12 +100,12 @@ export function ProfileDetailSheet({
     >
       <div className="space-y-4">
         {/* Photo Carousel with Top-Right Safety Menu */}
-        <div className="relative rounded-[20px] overflow-hidden aspect-[3/4] bg-[#eaf5ef] select-none">
+        <div className="relative rounded-[20px] overflow-hidden aspect-[3/4] bg-[#1d1d1d] select-none">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={activePhoto.public_url}
             alt={`${profile.name} foto ${safeIndex + 1}`}
-            className="w-full h-full object-cover transition-all duration-200"
+            className="absolute inset-0 w-full h-full object-cover object-center transition-all duration-200"
           />
 
           {/* Photo Progress Bars (Clickable) */}

@@ -509,15 +509,6 @@ function PaymentStatusContent() {
               >
                 Mulai Kenalan
               </Button>
-
-              <Button
-                variant="secondary"
-                size="sm"
-                fullWidth
-                onClick={() => handleTriggerWebhook("paid")}
-              >
-                Uji Kirim Webhook Duplikat (Tes Idempotency)
-              </Button>
             </div>
           </div>
         )}

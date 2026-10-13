@@ -586,7 +586,7 @@ export default function DiscoverPage() {
                     }
                   : undefined
               }
-              className={`relative rounded-[24px] overflow-hidden bg-white border border-[#E9E9EE] shadow-[0_8px_24px_rgba(0,0,0,0.08)] flex-1 h-[calc(100dvh-210px)] min-h-[440px] max-h-[680px] w-full cursor-grab active:cursor-grabbing select-none touch-pan-y ${
+              className={`relative rounded-[24px] overflow-hidden bg-[#1d1d1d] border border-[#E9E9EE] shadow-[0_8px_24px_rgba(0,0,0,0.08)] h-[calc(100dvh-205px)] min-h-[460px] max-h-[680px] w-full cursor-grab active:cursor-grabbing select-none touch-pan-y ${
                 isDragging ? "" : "transition-all duration-200"
               } ${
                 swipeAnim === "right"
@@ -607,11 +607,11 @@ export default function DiscoverPage() {
                 }
                 alt={`${currentProfile.name} foto ${cardPhotoIndex + 1}`}
                 draggable={false}
-                className="w-full h-full object-cover pointer-events-none transition-all duration-200"
+                className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none transition-all duration-200"
               />
 
               {/* Bottom Gradient Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent pointer-events-none" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-transparent pointer-events-none" />
 
               {/* Top Segmented Photo Slide Progress Bars */}
               {currentProfile.photos.length > 1 && (

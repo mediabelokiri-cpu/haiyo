@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, Crown, Star, X, Zap } from "lucide-react";
 import {
@@ -9,7 +8,6 @@ import {
   Badge,
   Button,
   PremiumBadge,
-  useToast,
 } from "@/components/ui";
 import {
   getActiveSubscription,
@@ -17,7 +15,6 @@ import {
   loadAppState,
   LocalAppState,
   MASTER_SUBSCRIPTION_PLANS,
-  saveAppState,
 } from "@/lib/store/app-state";
 import { formatRupiah } from "@/lib/utils";
 import { SubscriptionPlanCode } from "@/types/database";
@@ -42,7 +39,6 @@ const COMPARISON_ROWS = [
  */
 export default function PremiumPage() {
   const router = useRouter();
-  const { toast } = useToast();
   const [appState, setAppState] = useState<LocalAppState | null>(null);
   const [selectedCode, setSelectedCode] =
     useState<SubscriptionPlanCode>("PREMIUM_1M");
@@ -55,53 +51,6 @@ export default function PremiumPage() {
 
   const isPremium = isCurrentUserPremium(appState);
   const activeSub = getActiveSubscription(appState);
-
-  // Internal test helper (Phase 8 Roadmap Rule #9: Test Premium independently of payment gateway)
-  const handleToggleInternalTestPremium = () => {
-    const fresh = loadAppState();
-    if (isCurrentUserPremium(fresh)) {
-      const updated: LocalAppState = {
-        ...fresh,
-        subscriptions: fresh.subscriptions.map((s) => ({
-          ...s,
-          status: "expired",
-        })),
-      };
-      saveAppState(updated);
-      setAppState(updated);
-      toast({
-        title: "Mode Test: Status kembali ke FREE.",
-        variant: "info",
-      });
-    } else {
-      const expires = new Date(
-        Date.now() + 30 * 24 * 60 * 60 * 1000
-      ).toISOString();
-      const updated: LocalAppState = {
-        ...fresh,
-        subscriptions: [
-          {
-            id: `sub-test-${Date.now()}`,
-            user_id: fresh.currentUser?.id ?? "user-me",
-            plan_id: "plan-1m",
-            status: "active",
-            started_at: new Date().toISOString(),
-            expires_at: expires,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          },
-          ...fresh.subscriptions,
-        ],
-      };
-      saveAppState(updated);
-      setAppState(updated);
-      toast({
-        title: "Mode Test: HAIYO Premium Aktif",
-        description: "Sekarang kamu bisa menguji Who Likes You, Undo, dan Unlimited Swipe.",
-        variant: "success",
-      });
-    }
-  };
 
   return (
     <AppShell
@@ -282,31 +231,6 @@ export default function PremiumPage() {
             ))}
           </div>
         </section>
-
-        {/* Phase 8 Independent Test Helper */}
-        <div className="p-4 rounded-[16px] bg-white border border-dashed border-[#67bf9a]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-[13px] text-[#6F7078]">
-            <span className="font-bold text-[#67bf9a]">
-              Mode Pengujian Phase 8:
-            </span>{" "}
-            Uji fitur Premium secara langsung atau lanjut ke alur Checkout &
-            Webhook Payment Gateway (Phase 9).
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleToggleInternalTestPremium}
-            >
-              {isPremium ? "Matikan Test Premium" : "Aktifkan Test Premium"}
-            </Button>
-            <Link href="/profile/payment-history">
-              <Button variant="ghost" size="sm">
-                Riwayat Bayar
-              </Button>
-            </Link>
-          </div>
-        </div>
       </div>
     </AppShell>
   );

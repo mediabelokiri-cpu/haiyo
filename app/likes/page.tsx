@@ -200,13 +200,13 @@ export default function LikesPage() {
               {incomingLikeProfiles.map((person) => (
                 <div
                   key={person.id}
-                  className="relative aspect-[3/4] rounded-[20px] overflow-hidden border border-[#E9E9EE] bg-white shadow-sm"
+                  className="relative aspect-[3/4] rounded-[20px] overflow-hidden border border-[#E9E9EE] bg-[#1d1d1d] shadow-sm"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={person.photos[0]?.public_url}
                     alt="Profil terkunci"
-                    className="w-full h-full object-cover blur-lg scale-110"
+                    className="absolute inset-0 w-full h-full object-cover object-center blur-lg scale-110"
                   />
                   <div className="absolute inset-0 bg-black/35 flex flex-col items-center justify-center p-4 text-center text-white space-y-2">
                     <div className="w-11 h-11 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
@@ -234,13 +234,13 @@ export default function LikesPage() {
                   type="button"
                   onClick={() => setDetailProfile(person)}
                   aria-label={`Lihat profil ${person.name}`}
-                  className="relative aspect-[3/4] text-left group cursor-pointer overflow-hidden"
+                  className="relative aspect-[3/4] w-full bg-[#1d1d1d] text-left group cursor-pointer overflow-hidden"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={person.photos[0]?.public_url}
                     alt={person.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent" />
                   <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
