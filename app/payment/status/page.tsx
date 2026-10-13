@@ -11,25 +11,34 @@ import {
   Copy,
   CreditCard,
   Crown,
+  Eye,
+  ImagePlus,
   QrCode,
+  ShieldCheck,
+  Upload,
   Wallet,
 } from "lucide-react";
-import { AppShell, Badge, Button, useToast } from "@/components/ui";
+import { AppShell, Badge, Button, Modal, useToast } from "@/components/ui";
 import {
   loadAppState,
   LocalAppState,
-  MASTER_SUBSCRIPTION_PLANS,
+  resolveSubscriptionPlan,
   saveAppState,
+  syncAppStateFromSupabase,
+  upsertPaymentOrderInLedger,
 } from "@/lib/store/app-state";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import {
+  formatKilobytes,
+  uploadCompressedProfilePhoto,
+} from "@/lib/supabase/photo-storage";
 import { formatRupiah } from "@/lib/utils";
 
 /**
  * Payment Status Page (/payment/status) per UI/UX Sections 55, 56 & 57:
- * - Pending: "Menunggu Pembayaran" ("Selesaikan pembayaran untuk mengaktifkan Premium.")
+ * - Pending: "Menunggu Pembayaran" / "Menunggu Verifikasi Admin"
  * - Success: "Pembayaran Berhasil" ("Premium kamu sudah aktif.")
  * - Failed: "Pembayaran Belum Berhasil" ("Pembayaran belum berhasil diproses.")
- * Includes Sandbox Simulator triggers that call the Server Webhook API `/api/webhooks/payment`
- * to validate idempotency and cumulative subscription renewal (PRD Section 31).
  */
 function PaymentStatusContent() {
   const router = useRouter();
@@ -38,10 +47,31 @@ function PaymentStatusContent() {
   const orderId = searchParams.get("order_id") ?? "";
 
   const [appState, setAppState] = useState<LocalAppState | null>(null);
-  const [isSimulating, setIsSimulating] = useState(false);
+  const [isUploadingProof, setIsUploadingProof] = useState(false);
+  const [isSubmittingConfirm, setIsSubmittingConfirm] = useState(false);
+  const [previewProofModalOpen, setPreviewProofModalOpen] = useState(false);
 
   useEffect(() => {
     setAppState(loadAppState());
+
+    void (async () => {
+      const synced = await syncAppStateFromSupabase();
+      setAppState(synced);
+    })();
+
+    const onUpdated = () => setAppState(loadAppState());
+    window.addEventListener("haiyo-state-updated", onUpdated);
+
+    // Poll every 5 seconds while waiting for Admin approval
+    const pollTimer = window.setInterval(async () => {
+      const synced = await syncAppStateFromSupabase();
+      setAppState(synced);
+    }, 5000);
+
+    return () => {
+      window.removeEventListener("haiyo-state-updated", onUpdated);
+      window.clearInterval(pollTimer);
+    };
   }, []);
 
   if (!appState) return null;
@@ -67,106 +97,116 @@ function PaymentStatusContent() {
   const sub = appState.subscriptions.find(
     (s) => s.id === payment.subscription_id
   );
-  const plan = MASTER_SUBSCRIPTION_PLANS.find((p) => p.id === sub?.plan_id);
+  const plan = resolveSubscriptionPlan(
+    payment.plan_code ?? payment.plan_id ?? sub?.plan_code ?? sub?.plan_id,
+    payment.amount
+  );
 
-  /**
-   * Trigger Server-Side Payment Webhook (/api/webhooks/payment)
-   * Enforces idempotency + cumulative renewal (PRD Sections 31, 34 & 35).
-   */
-  const handleTriggerWebhook = async (
-    targetStatus: "paid" | "failed"
+  const proofUrl =
+    payment.proof_url ??
+    (payment.transaction_id?.startsWith("PROOF|")
+      ? payment.transaction_id.slice(6)
+      : null);
+  const isWaitingAdminVerification = Boolean(
+    payment.user_confirmed_at || proofUrl
+  );
+
+  // Handle uploading screenshot/photo of transfer receipt
+  const handleProofFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    setIsSimulating(true);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    setIsUploadingProof(true);
     try {
-      const response = await fetch("/api/webhooks/payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-haiyo-webhook-signature": "sandbox-verified-signature",
-        },
-        body: JSON.stringify({
-          order_id: payment.order_id,
-          transaction_id: `TRX-${Date.now()}`,
-          amount: payment.amount,
-          status: targetStatus,
-        }),
-      });
-
-      const result = await response.json();
-      if (!response.ok) {
-        toast({
-          title: "Webhook ditolak server",
-          description: result.error ?? "Signature tidak valid",
-          variant: "error",
-        });
-        return;
-      }
-
       const fresh = loadAppState();
+      const userId = fresh.currentUser?.id ?? payment.user_id ?? "user-me";
+      const uploaded = await uploadCompressedProfilePhoto(file, userId);
 
-      // Idempotency check in client sync: if already paid, do not double-add duration!
-      const currentPayment = fresh.payments.find(
-        (p) => p.order_id === payment.order_id
-      );
-      if (currentPayment?.status === "paid" && targetStatus === "paid") {
-        toast({
-          title: "Webhook Idempotent Terverifikasi",
-          description:
-            "Transaksi sudah berstatus PAID sebelumnya. Masa aktif tidak digandakan.",
-          variant: "info",
+      const nowIso = new Date().toISOString();
+      const updated: LocalAppState = {
+        ...fresh,
+        payments: fresh.payments.map((p) =>
+          p.order_id === payment.order_id
+            ? {
+                ...p,
+                proof_url: uploaded.publicUrl,
+                transaction_id: `PROOF|${uploaded.publicUrl}`,
+                updated_at: nowIso,
+              }
+            : p
+        ),
+      };
+      saveAppState(updated);
+      setAppState(updated);
+
+      if (isSupabaseConfigured()) {
+        await upsertPaymentOrderInLedger({
+          order_id: payment.order_id,
+          payment_id: payment.id,
+          subscription_id: payment.subscription_id,
+          user_id: userId,
+          user_name:
+            fresh.currentUser?.profile.name ||
+            payment.user_name ||
+            "Pengguna HAIYO",
+          user_email: fresh.currentUser?.email || payment.user_email || "",
+          plan_id: plan.id,
+          plan_code: plan.code,
+          plan_name: plan.name,
+          duration_days: plan.duration_days,
+          amount: payment.amount,
+          payment_method: payment.payment_method,
+          proof_url: uploaded.publicUrl,
         });
-        return;
+
+        try {
+          const supabase = createClient();
+          await supabase
+            .from("payments")
+            .update({
+              transaction_id: `PROOF|${uploaded.publicUrl}`,
+            })
+            .eq("order_id", payment.order_id);
+        } catch {
+          // non-blocking
+        }
       }
 
-      if (targetStatus === "failed") {
-        const updated: LocalAppState = {
-          ...fresh,
-          payments: fresh.payments.map((p) =>
-            p.order_id === payment.order_id ? { ...p, status: "failed" } : p
-          ),
-          subscriptions: fresh.subscriptions.map((s) =>
-            s.id === payment.subscription_id ? { ...s, status: "cancelled" } : s
-          ),
-          notifications: [
-            {
-              id: `notif-pay-fail-${Date.now()}`,
-              user_id: fresh.currentUser?.id ?? "user-me",
-              type: "payment_failed",
-              title: "Pembayaran Belum Berhasil",
-              message: `Pembayaran untuk ${plan?.name ?? "Premium"} belum berhasil diproses.`,
-              reference_id: payment.id,
-              is_read: false,
-              created_at: new Date().toISOString(),
-            },
-            ...fresh.notifications,
-          ],
-        };
-        saveAppState(updated);
-        setAppState(updated);
-        toast({
-          title: "Pembayaran gagal diproses.",
-          variant: "error",
-        });
-        return;
-      }
+      toast({
+        title: "Bukti transfer berhasil diupload!",
+        description: `Ukuran foto: ${formatKilobytes(uploaded.compressedBytes)} (WebP). Silakan klik tombol Konfirmasi di bawah.`,
+        variant: "success",
+      });
+    } catch {
+      toast({
+        title: "Gagal mengupload bukti transfer",
+        description: "Pastikan file berupa gambar (JPG, PNG, atau WebP).",
+        variant: "error",
+      });
+    } finally {
+      setIsUploadingProof(false);
+    }
+  };
 
-      // Cumulative Renewal Calculation (PRD Section 31):
-      // If user already has an active subscription with expires_at > NOW(), add duration_days to current max expiry
-      const nowMs = Date.now();
-      const activeExpiryMs = fresh.subscriptions
-        .filter(
-          (s) =>
-            s.status === "active" &&
-            s.expires_at &&
-            new Date(s.expires_at).getTime() > nowMs
-        )
-        .reduce(
-          (max, s) => Math.max(max, new Date(s.expires_at!).getTime()),
-          nowMs
-        );
+  // Handle user clicking "Saya Sudah Bayar · Kirim Konfirmasi ke Admin"
+  const handleConfirmPaymentToAdmin = async () => {
+    if (!proofUrl) {
+      toast({
+        title: "Upload bukti pembayaran dulu",
+        description:
+          "Mohon lampirkan screenshot/foto bukti transfer di atas agar Admin dapat memverifikasi pesananmu.",
+        variant: "error",
+      });
+      return;
+    }
 
-      const durationMs = (plan?.duration_days ?? 30) * 24 * 60 * 60 * 1000;
-      const newExpiryIso = new Date(activeExpiryMs + durationMs).toISOString();
+    setIsSubmittingConfirm(true);
+    try {
+      const fresh = loadAppState();
+      const userId = fresh.currentUser?.id ?? payment.user_id ?? "user-me";
       const nowIso = new Date().toISOString();
 
       const updated: LocalAppState = {
@@ -175,58 +215,46 @@ function PaymentStatusContent() {
           p.order_id === payment.order_id
             ? {
                 ...p,
-                status: "paid",
-                transaction_id: result.transaction_id ?? `TRX-${Date.now()}`,
-                paid_at: nowIso,
+                user_confirmed_at: nowIso,
+                proof_url: proofUrl,
+                updated_at: nowIso,
               }
             : p
         ),
-        subscriptions: fresh.subscriptions.map((s) =>
-          s.id === payment.subscription_id
-            ? {
-                ...s,
-                status: "active",
-                started_at: nowIso,
-                expires_at: newExpiryIso,
-              }
-            : s
-        ),
-        notifications: [
-          {
-            id: `notif-sub-${Date.now()}`,
-            user_id: fresh.currentUser?.id ?? "user-me",
-            type: "subscription_active",
-            title: "HAIYO Premium Aktif",
-            message: `${plan?.name ?? "Premium"} aktif hingga ${new Date(
-              newExpiryIso
-            ).toLocaleDateString("id-ID")}.`,
-            reference_id: payment.subscription_id,
-            is_read: false,
-            created_at: nowIso,
-          },
-          {
-            id: `notif-pay-${Date.now()}`,
-            user_id: fresh.currentUser?.id ?? "user-me",
-            type: "payment_success",
-            title: "Pembayaran Berhasil",
-            message: `Pembayaran ${formatRupiah(payment.amount)} telah terkonfirmasi.`,
-            reference_id: payment.id,
-            is_read: false,
-            created_at: nowIso,
-          },
-          ...fresh.notifications,
-        ],
       };
-
       saveAppState(updated);
       setAppState(updated);
+
+      if (isSupabaseConfigured()) {
+        await upsertPaymentOrderInLedger({
+          order_id: payment.order_id,
+          payment_id: payment.id,
+          subscription_id: payment.subscription_id,
+          user_id: userId,
+          user_name:
+            fresh.currentUser?.profile.name ||
+            payment.user_name ||
+            "Pengguna HAIYO",
+          user_email: fresh.currentUser?.email || payment.user_email || "",
+          plan_id: plan.id,
+          plan_code: plan.code,
+          plan_name: plan.name,
+          duration_days: plan.duration_days,
+          amount: payment.amount,
+          payment_method: payment.payment_method,
+          proof_url: proofUrl,
+          user_confirmed_at: nowIso,
+        });
+      }
+
       toast({
-        title: "Pembayaran berhasil.",
-        description: "HAIYO Premium kamu sekarang sudah aktif!",
+        title: "Konfirmasi & bukti pembayaran terkirim!",
+        description:
+          "Admin HAIYO sedang memverifikasi pembayaranmu. Paket Premium akan otomatis aktif segera setelah disetujui Admin.",
         variant: "success",
       });
     } finally {
-      setIsSimulating(false);
+      setIsSubmittingConfirm(false);
     }
   };
 
@@ -246,12 +274,20 @@ function PaymentStatusContent() {
             </div>
 
             <div className="space-y-1.5">
-              <Badge variant="warning">MENUNGGU PEMBAYARAN</Badge>
+              <Badge variant="warning">
+                {isWaitingAdminVerification
+                  ? "MENUNGGU VERIFIKASI ADMIN"
+                  : "MENUNGGU PEMBAYARAN"}
+              </Badge>
               <h1 className="text-[24px] font-bold text-[#1d1d1d] pt-1">
-                Menunggu Pembayaran
+                {isWaitingAdminVerification
+                  ? "Menunggu Verifikasi Admin"
+                  : "Menunggu Pembayaran"}
               </h1>
               <p className="text-[14px] text-[#6F7078]">
-                Selesaikan pembayaran untuk mengaktifkan Premium.
+                {isWaitingAdminVerification
+                  ? "Bukti pembayaran sudah diterima. Admin sedang memverifikasi pesananmu untuk mengaktifkan Premium."
+                  : "Selesaikan pembayaran sesuai nominal dan upload bukti transfer di bawah ini."}
               </p>
             </div>
 
@@ -378,9 +414,9 @@ function PaymentStatusContent() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#6F7078]">Paket</span>
-                  <span className="font-semibold text-[#1d1d1d]">
-                    {plan?.name ?? "HAIYO Premium"}
+                  <span className="text-[#6F7078]">Paket Dipilih</span>
+                  <span className="font-bold text-[#1d1d1d]">
+                    {plan.name} ({plan.duration_days} Hari)
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -394,7 +430,7 @@ function PaymentStatusContent() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-[#6F7078]">Total</span>
+                  <span className="text-[#6F7078]">Total Bayar</span>
                   <span className="font-extrabold text-[#267a50]">
                     {formatRupiah(payment.amount)}
                   </span>
@@ -402,26 +438,115 @@ function PaymentStatusContent() {
               </div>
             </div>
 
+            {/* Upload Bukti Pembayaran Section */}
+            <div className="p-5 rounded-[20px] bg-[#f9f9fa] border border-[#E9E9EE] text-left space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-[14px] font-bold text-[#1d1d1d]">
+                    Bukti Transfer / Pembayaran
+                  </p>
+                  <p className="text-[12px] text-[#6F7078]">
+                    Upload screenshot atau foto bukti pembayaran agar Admin dapat
+                    segera mengaktifkan paket Premium kamu.
+                  </p>
+                </div>
+                {proofUrl && <Badge variant="success">TERLAMPIR</Badge>}
+              </div>
+
+              {proofUrl ? (
+                <div className="p-3 rounded-[16px] bg-white border border-[#E9E9EE] flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <img
+                      src={proofUrl}
+                      alt="Bukti Transfer"
+                      onClick={() => setPreviewProofModalOpen(true)}
+                      className="w-16 h-16 rounded-[12px] object-cover border border-[#E9E9EE] shrink-0 cursor-pointer hover:opacity-90"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-bold text-[#16A34A] flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <span>Foto Bukti Siap Diverifikasi</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewProofModalOpen(true)}
+                        className="text-[12px] font-semibold text-[#267a50] hover:underline inline-flex items-center gap-1 mt-0.5 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Lihat Ukuran Penuh</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <label className="px-3 py-1.5 rounded-full bg-[#f9f9fa] border border-[#E9E9EE] text-[12px] font-bold text-[#1d1d1d] hover:bg-[#E9E9EE]/60 transition-colors cursor-pointer shrink-0">
+                    {isUploadingProof ? "Mengupload..." : "Ganti Foto"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleProofFileChange}
+                      disabled={isUploadingProof}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              ) : (
+                <label className="flex flex-col items-center justify-center gap-2 p-5 rounded-[16px] bg-white border-2 border-dashed border-[#267a50]/45 hover:bg-[#eaf5ef]/40 transition-colors cursor-pointer text-center">
+                  <div className="w-10 h-10 rounded-full bg-[#eaf5ef] text-[#267a50] flex items-center justify-center">
+                    {isUploadingProof ? (
+                      <Clock className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <ImagePlus className="w-5 h-5" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[13px] font-bold text-[#267a50]">
+                      {isUploadingProof
+                        ? "Mengompres & Mengupload Bukti..."
+                        : "Pilih Foto / Screenshot Bukti Transfer"}
+                    </p>
+                    <p className="text-[11px] text-[#6F7078] mt-0.5">
+                      Format JPG, PNG, atau WebP · Otomatis terkompresi cepat
+                    </p>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleProofFileChange}
+                    disabled={isUploadingProof}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+
+            {payment.user_confirmed_at && (
+              <div className="p-4 rounded-[16px] bg-[#eaf5ef] border border-[#267a50]/25 text-left flex items-start gap-3">
+                <ShieldCheck className="w-5 h-5 text-[#267a50] shrink-0 mt-0.5" />
+                <div className="text-[12px] text-[#1d1d1d] space-y-0.5">
+                  <p className="font-bold text-[#267a50]">
+                    Konfirmasi Pembayaran Sudah Dikirim ke Admin
+                  </p>
+                  <p className="text-[#6F7078]">
+                    Halaman ini akan otomatis berubah menjadi{" "}
+                    <strong>BERHASIL</strong> begitu Admin menyetujui transaksi
+                    kamu.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-2.5">
               <Button
                 variant="primary"
                 size="lg"
                 fullWidth
-                isLoading={isSimulating}
-                onClick={() => {
-                  if (appState.paymentConfig.requireAdminApproval) {
-                    toast({
-                      title: "Konfirmasi pembayaran terkirim!",
-                      description:
-                        "Admin akan memverifikasi mutasi rekening/E-Wallet dan mengaktifkan Premium kamu melalui Portal Admin (/admin).",
-                      variant: "info",
-                    });
-                  } else {
-                    handleTriggerWebhook("paid");
-                  }
-                }}
+                isLoading={isSubmittingConfirm || isUploadingProof}
+                leftIcon={<Upload className="w-4 h-4" />}
+                onClick={handleConfirmPaymentToAdmin}
               >
-                Saya Sudah Bayar · Konfirmasi Pembayaran
+                {payment.user_confirmed_at
+                  ? "Kirim Ulang Konfirmasi ke Admin"
+                  : "Saya Sudah Bayar · Kirim Konfirmasi ke Admin"}
               </Button>
 
               {appState.paymentConfig.whatsappConfirmationNumber && (
@@ -430,9 +555,11 @@ function PaymentStatusContent() {
                     /\D/g,
                     ""
                   )}?text=${encodeURIComponent(
-                    `Halo Admin HAIYO, saya sudah melakukan pembayaran untuk Order ID ${
+                    `Halo Admin HAIYO, saya (${
+                      appState.currentUser?.profile.name ?? "User"
+                    }) sudah melakukan pembayaran dan upload bukti untuk Order ID ${
                       payment.order_id
-                    } (${plan?.name ?? "HAIYO Premium"} - ${formatRupiah(
+                    } (${plan.name} - ${formatRupiah(
                       payment.amount
                     )}). Mohon diverifikasi ya, terima kasih!`
                   )}`}
@@ -441,7 +568,7 @@ function PaymentStatusContent() {
                   className="block"
                 >
                   <Button variant="secondary" fullWidth>
-                    Kirim Bukti Transfer via WhatsApp Admin
+                    Hubungi Admin via WhatsApp
                   </Button>
                 </a>
               )}
@@ -470,7 +597,7 @@ function PaymentStatusContent() {
               <div className="flex justify-between">
                 <span className="text-[#6F7078]">Paket</span>
                 <span className="font-bold text-[#1d1d1d]">
-                  {plan?.name ?? "HAIYO Premium"}
+                  {plan.name} ({plan.duration_days} Hari)
                 </span>
               </div>
               <div className="flex justify-between">
@@ -549,6 +676,33 @@ function PaymentStatusContent() {
               </Link>
             </div>
           </div>
+        )}
+
+        {proofUrl && (
+          <Modal
+            isOpen={previewProofModalOpen}
+            onClose={() => setPreviewProofModalOpen(false)}
+            title="Bukti Transfer Pembayaran"
+            description={`Order ID: ${payment.order_id} · ${plan.name}`}
+          >
+            <div className="space-y-4">
+              <div className="rounded-[16px] overflow-hidden border border-[#E9E9EE] bg-[#f9f9fa] max-h-[65dvh] flex items-center justify-center">
+                <img
+                  src={proofUrl}
+                  alt="Bukti Transfer"
+                  className="max-w-full max-h-[65dvh] object-contain"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="secondary"
+                  onClick={() => setPreviewProofModalOpen(false)}
+                >
+                  Tutup
+                </Button>
+              </div>
+            </div>
+          </Modal>
         )}
       </div>
     </AppShell>

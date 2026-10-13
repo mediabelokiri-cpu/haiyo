@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   CreditCard,
   Crown,
+  Eye,
   Flag,
   Heart,
   LayoutTemplate,
@@ -40,13 +41,16 @@ import {
 import {
   DEFAULT_HOMEPAGE_CONFIG,
   DEFAULT_PAYMENT_CONFIG,
+  fetchPaymentOrdersLedger,
   HomepageConfig,
   loadAppState,
   LocalAppState,
   logoutUserInState,
   MASTER_SUBSCRIPTION_PLANS,
   PaymentRecipientConfig,
+  resolveSubscriptionPlan,
   saveAppState,
+  upsertPaymentOrderInLedger,
 } from "@/lib/store/app-state";
 import { calculateAge, formatRupiah } from "@/lib/utils";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
@@ -133,7 +137,10 @@ export default function AdminDashboardPage() {
     }
 
     setAppState(loaded);
-    setPaymentConfigDraft(loaded.paymentConfig ?? DEFAULT_PAYMENT_CONFIG);
+    setPaymentConfigDraft({
+      ...(loaded.paymentConfig ?? DEFAULT_PAYMENT_CONFIG),
+      requireAdminApproval: true,
+    });
     setHomepageDraft(loaded.homepageConfig ?? DEFAULT_HOMEPAGE_CONFIG);
 
     if (typeof window !== "undefined") {
@@ -154,129 +161,223 @@ export default function AdminDashboardPage() {
       }
     }
 
-    // Fetch live operational data from Supabase
-    if (isSupabaseConfigured()) {
+    const fetchOperationalData = async () => {
+      if (!isSupabaseConfigured()) return;
       const supabase = createClient();
-      void (async () => {
-        try {
-          const [
-            { data: profileRows },
-            { data: photoRows },
-            { data: subRows },
-            { data: payRows },
-            { data: repRows },
-            { count: matchesCnt },
-            { count: messagesCnt },
-          ] = await Promise.all([
-            supabase
-              .from("profiles")
-              .select("*")
-              .order("created_at", { ascending: false }),
-            supabase
-              .from("profile_photos")
-              .select("*")
-              .order("display_order", { ascending: true }),
-            supabase
-              .from("subscriptions")
-              .select("*")
-              .order("created_at", { ascending: false }),
-            supabase
-              .from("payments")
-              .select("*")
-              .order("created_at", { ascending: false }),
-            supabase
-              .from("reports")
-              .select("*")
-              .order("created_at", { ascending: false }),
-            supabase
-              .from("matches")
-              .select("*", { count: "exact", head: true }),
-            supabase
-              .from("messages")
-              .select("*", { count: "exact", head: true }),
-          ]);
+      try {
+        const [
+          { data: profileRows },
+          { data: photoRows },
+          { data: subRows },
+          { data: payRows },
+          { data: repRows },
+          { count: matchesCnt },
+          { count: messagesCnt },
+          ledgerRows,
+        ] = await Promise.all([
+          supabase
+            .from("profiles")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("profile_photos")
+            .select("*")
+            .order("display_order", { ascending: true }),
+          supabase
+            .from("subscriptions")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("payments")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("reports")
+            .select("*")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("matches")
+            .select("*", { count: "exact", head: true }),
+          supabase
+            .from("messages")
+            .select("*", { count: "exact", head: true }),
+          fetchPaymentOrdersLedger(),
+        ]);
 
-          if (typeof matchesCnt === "number") setDbMatchesCount(matchesCnt);
-          if (typeof messagesCnt === "number") setDbMessagesCount(messagesCnt);
+        if (typeof matchesCnt === "number") setDbMatchesCount(matchesCnt);
+        if (typeof messagesCnt === "number") setDbMessagesCount(messagesCnt);
 
-          if (Array.isArray(profileRows)) {
-            const activeSubUserIds = new Set(
-              (subRows ?? [])
-                .filter(
-                  (s) =>
-                    s.status === "active" &&
-                    (!s.expires_at ||
-                      new Date(s.expires_at).getTime() > Date.now())
-                )
-                .map((s) => s.user_id)
-            );
+        const nowMs = Date.now();
+        const activeSubUserIds = new Set(
+          (subRows ?? [])
+            .filter(
+              (s) =>
+                s.status === "active" &&
+                (!s.expires_at || new Date(s.expires_at).getTime() > nowMs)
+            )
+            .map((s) => s.user_id)
+        );
+        for (const entry of ledgerRows) {
+          if (
+            entry.status === "paid" &&
+            (!entry.expires_at || new Date(entry.expires_at).getTime() > nowMs)
+          ) {
+            activeSubUserIds.add(entry.user_id);
+          }
+        }
 
-            const mapped: ManagedUserRow[] = profileRows
-              .filter((p) => !p.is_admin)
-              .map((p) => {
-                const primaryPhoto = (photoRows ?? []).find(
+        if (Array.isArray(profileRows)) {
+          const mapped: ManagedUserRow[] = profileRows
+            .filter((p) => !p.is_admin)
+            .map((p) => {
+              const primaryPhoto =
+                (photoRows ?? []).find(
                   (ph) => ph.user_id === p.id && ph.is_primary
                 ) ?? (photoRows ?? []).find((ph) => ph.user_id === p.id);
 
-                let avatarUrl: string | undefined;
-                if (primaryPhoto?.storage_path) {
-                  avatarUrl =
-                    primaryPhoto.storage_path.startsWith("http") ||
-                    primaryPhoto.storage_path.startsWith("data:")
-                      ? primaryPhoto.storage_path
-                      : supabase.storage
-                          .from("profile-photos")
-                          .getPublicUrl(
-                            primaryPhoto.storage_path.replace(
-                              /^profile-photos\//,
-                              ""
-                            )
-                          ).data.publicUrl;
-                }
+              let avatarUrl: string | undefined;
+              if (primaryPhoto?.storage_path) {
+                avatarUrl =
+                  primaryPhoto.storage_path.startsWith("http") ||
+                  primaryPhoto.storage_path.startsWith("data:")
+                    ? primaryPhoto.storage_path
+                    : supabase.storage
+                        .from("profile-photos")
+                        .getPublicUrl(
+                          primaryPhoto.storage_path.replace(
+                            /^profile-photos\//,
+                            ""
+                          )
+                        ).data.publicUrl;
+              }
 
-                return {
-                  id: p.id,
-                  name: p.name || "User",
-                  email: `${(p.name || "user").toLowerCase().replace(/\s+/g, ".")}@user.haiyo`,
-                  age: p.date_of_birth ? calculateAge(p.date_of_birth) : 20,
-                  gender: (p.gender === "female" ? "female" : "male") as
-                    | "male"
-                    | "female",
-                  city: p.city || "-",
-                  status: (p.status as UserStatus) || "active",
-                  is_premium: activeSubUserIds.has(p.id),
-                  created_at: (p.created_at || "").slice(0, 10),
-                  avatar_url: avatarUrl,
-                  bio: p.bio ?? "",
-                };
-              });
+              return {
+                id: p.id,
+                name: p.name || "User",
+                email: `${(p.name || "user")
+                  .toLowerCase()
+                  .replace(/\s+/g, ".")}@user.haiyo`,
+                age: p.date_of_birth ? calculateAge(p.date_of_birth) : 20,
+                gender: (p.gender === "female" ? "female" : "male") as
+                  | "male"
+                  | "female",
+                city: p.city || "-",
+                status: (p.status as UserStatus) || "active",
+                is_premium: activeSubUserIds.has(p.id),
+                created_at: (p.created_at || "").slice(0, 10),
+                avatar_url: avatarUrl,
+                bio: p.bio ?? "",
+              };
+            });
 
-            setManagedUsers(mapped);
+          setManagedUsers(mapped);
+        }
+
+        setAppState((prev) => {
+          if (!prev) return prev;
+          const payMap = new Map<string, PaymentRecord>();
+          for (const p of prev.payments) {
+            payMap.set(p.order_id, p);
+          }
+          for (const p of payRows ?? []) {
+            payMap.set(p.order_id, p as PaymentRecord);
+          }
+          for (const entry of ledgerRows) {
+            const existing = payMap.get(entry.order_id);
+            const plan = resolveSubscriptionPlan(
+              entry.plan_code ?? entry.plan_id,
+              entry.amount
+            );
+            payMap.set(entry.order_id, {
+              id: existing?.id ?? entry.payment_id,
+              user_id: entry.user_id,
+              subscription_id:
+                existing?.subscription_id ?? entry.subscription_id,
+              order_id: entry.order_id,
+              transaction_id:
+                entry.transaction_id ?? existing?.transaction_id ?? null,
+              gateway: entry.gateway || "direct",
+              payment_method: entry.payment_method,
+              amount: entry.amount,
+              status: entry.status,
+              paid_at: entry.paid_at ?? existing?.paid_at ?? null,
+              created_at: entry.created_at,
+              updated_at: entry.updated_at,
+              user_name: entry.user_name,
+              user_email: entry.user_email,
+              plan_id: plan.id,
+              plan_code: plan.code,
+              plan_name: plan.name,
+              duration_days: plan.duration_days,
+              proof_url: entry.proof_url ?? existing?.proof_url ?? null,
+              user_confirmed_at:
+                entry.user_confirmed_at ?? existing?.user_confirmed_at ?? null,
+            });
           }
 
-          setAppState((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              subscriptions:
-                Array.isArray(subRows) && subRows.length > 0
-                  ? (subRows as SubscriptionRecord[])
-                  : prev.subscriptions,
-              payments:
-                Array.isArray(payRows) && payRows.length > 0
-                  ? (payRows as PaymentRecord[])
-                  : prev.payments,
-              reports:
-                Array.isArray(repRows) && repRows.length > 0
-                  ? (repRows as ReportRecord[])
-                  : prev.reports,
-            };
-          });
-        } catch {
-          // Non-blocking fallback
-        }
-      })();
-    }
+          const subMap = new Map<string, SubscriptionRecord>();
+          for (const s of prev.subscriptions) {
+            subMap.set(s.id, s);
+          }
+          for (const s of subRows ?? []) {
+            subMap.set(s.id, s as SubscriptionRecord);
+          }
+          for (const entry of ledgerRows) {
+            const existing = subMap.get(entry.subscription_id);
+            const plan = resolveSubscriptionPlan(
+              entry.plan_code ?? entry.plan_id,
+              entry.amount
+            );
+            const subStatus =
+              entry.status === "paid"
+                ? "active"
+                : entry.status === "failed" || entry.status === "cancelled"
+                ? "cancelled"
+                : existing?.status ?? "pending";
+
+            subMap.set(entry.subscription_id, {
+              id: entry.subscription_id,
+              user_id: entry.user_id,
+              plan_id: plan.id,
+              plan_code: plan.code,
+              plan_name: plan.name,
+              duration_days: plan.duration_days,
+              user_name: entry.user_name,
+              user_email: entry.user_email,
+              status: subStatus,
+              started_at: entry.started_at ?? existing?.started_at ?? null,
+              expires_at: entry.expires_at ?? existing?.expires_at ?? null,
+              created_at: entry.created_at,
+              updated_at: entry.updated_at,
+            });
+          }
+
+          return {
+            ...prev,
+            payments: Array.from(payMap.values()).sort(
+              (a, b) =>
+                new Date(b.created_at).getTime() -
+                new Date(a.created_at).getTime()
+            ),
+            subscriptions: Array.from(subMap.values()).sort(
+              (a, b) =>
+                new Date(b.created_at).getTime() -
+                new Date(a.created_at).getTime()
+            ),
+            reports:
+              Array.isArray(repRows) && repRows.length > 0
+                ? (repRows as ReportRecord[])
+                : prev.reports,
+          };
+        });
+      } catch {
+        // Non-blocking fallback
+      }
+    };
+
+    void fetchOperationalData();
+    const timer = window.setInterval(fetchOperationalData, 8000);
+    return () => window.clearInterval(timer);
   }, []);
 
   if (!appState) return null;
@@ -406,6 +507,7 @@ export default function AdminDashboardPage() {
         bankAccountName: paymentConfigDraft.bankAccountName.trim(),
         whatsappConfirmationNumber:
           paymentConfigDraft.whatsappConfirmationNumber.trim(),
+        requireAdminApproval: true,
       },
     };
     saveAppState(updated);
@@ -418,49 +520,58 @@ export default function AdminDashboardPage() {
     });
   };
 
-  // Admin Direct Payment Approval / Rejection (Calls Server Webhook & Updates Subscription)
+  const [inspectedProof, setInspectedProof] = useState<{
+    proofUrl: string;
+    orderId: string;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    planName: string;
+    durationDays: number;
+    amount: number;
+    paymentMethod: string;
+    status: string;
+    userConfirmedAt?: string | null;
+    createdAt: string;
+  } | null>(null);
+
+  // Helper to resolve user's display name, email, avatar
+  const resolveUserDisplay = (
+    userId: string,
+    fallbackName?: string,
+    fallbackEmail?: string
+  ) => {
+    const matched = managedUsers.find((u) => u.id === userId);
+    return {
+      name: fallbackName || matched?.name || "Pengguna HAIYO",
+      email:
+        fallbackEmail ||
+        matched?.email ||
+        `${(fallbackName || matched?.name || "user")
+          .toLowerCase()
+          .replace(/\s+/g, ".")}@user.haiyo`,
+      avatar_url: matched?.avatar_url,
+      city: matched?.city || "-",
+    };
+  };
+
+  // Admin Direct Payment Approval / Rejection
   const handleAdminVerifyPayment = async (
     orderId: string,
     targetStatus: "paid" | "failed"
   ) => {
     const fresh = loadAppState();
-    const payment = fresh.payments.find((p) => p.order_id === orderId);
+    const payment =
+      fresh.payments.find((p) => p.order_id === orderId) ??
+      appState?.payments.find((p) => p.order_id === orderId);
+
     if (!payment) {
       toast({
-        title: "Transaksi contoh (Sample)",
-        description:
-          "Buat transaksi baru dari halaman /premium -> /checkout untuk menguji verifikasi nyata.",
-        variant: "info",
-      });
-      return;
-    }
-
-    const response = await fetch("/api/webhooks/payment", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-haiyo-webhook-signature": "sandbox-verified-signature",
-      },
-      body: JSON.stringify({
-        order_id: payment.order_id,
-        transaction_id: `ADM-${Date.now()}`,
-        amount: payment.amount,
-        status: targetStatus,
-      }),
-    });
-
-    if (!response.ok) {
-      toast({
-        title: "Gagal memverifikasi pembayaran",
+        title: "Transaksi tidak ditemukan",
         variant: "error",
       });
       return;
     }
-
-    const sub = fresh.subscriptions.find(
-      (s) => s.id === payment.subscription_id
-    );
-    const plan = MASTER_SUBSCRIPTION_PLANS.find((p) => p.id === sub?.plan_id);
 
     if (payment.status === "paid" && targetStatus === "paid") {
       toast({
@@ -471,7 +582,32 @@ export default function AdminDashboardPage() {
       return;
     }
 
+    const targetUserId = payment.user_id;
+    const resolvedPlan = resolveSubscriptionPlan(
+      payment.plan_code ?? payment.plan_id,
+      payment.amount
+    );
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+
     if (targetStatus === "failed") {
+      await upsertPaymentOrderInLedger({
+        order_id: orderId,
+        status: "failed",
+      });
+
+      if (isSupabaseConfigured()) {
+        try {
+          const supabase = createClient();
+          await supabase
+            .from("payments")
+            .update({ status: "failed" })
+            .eq("order_id", orderId);
+        } catch {
+          // non-blocking
+        }
+      }
+
       const updated: LocalAppState = {
         ...fresh,
         payments: fresh.payments.map((p) =>
@@ -483,18 +619,22 @@ export default function AdminDashboardPage() {
       };
       saveAppState(updated);
       setAppState(updated);
+      if (inspectedProof?.orderId === orderId) {
+        setInspectedProof(null);
+      }
       toast({
-        title: `Transaksi ${orderId} ditolak (FAILED).`,
+        title: `Transaksi ${orderId} Ditolak (FAILED).`,
         variant: "error",
       });
       return;
     }
 
-    // Cumulative Renewal calculation
-    const nowMs = Date.now();
-    const activeExpiryMs = fresh.subscriptions
+    // Cumulative Renewal calculation (PRD Section 31):
+    // Add plan duration to current active unexpired subscription for this user
+    const existingActiveExpiryMs = (appState?.subscriptions ?? fresh.subscriptions)
       .filter(
         (s) =>
+          s.user_id === targetUserId &&
           s.status === "active" &&
           s.expires_at &&
           new Date(s.expires_at).getTime() > nowMs
@@ -504,10 +644,74 @@ export default function AdminDashboardPage() {
         nowMs
       );
 
-    const durationMs = (plan?.duration_days ?? 30) * 24 * 60 * 60 * 1000;
-    const newExpiryIso = new Date(activeExpiryMs + durationMs).toISOString();
-    const nowIso = new Date().toISOString();
+    const durationMs = resolvedPlan.duration_days * 24 * 60 * 60 * 1000;
+    const newExpiryIso = new Date(existingActiveExpiryMs + durationMs).toISOString();
+    const adminTrxId = `ADM-${Date.now()}`;
 
+    // 1. Update in site_settings payment_orders_ledger
+    await upsertPaymentOrderInLedger({
+      order_id: orderId,
+      status: "paid",
+      transaction_id: adminTrxId,
+      paid_at: nowIso,
+      started_at: nowIso,
+      expires_at: newExpiryIso,
+    });
+
+    // 2. Update Supabase tables if reachable
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = createClient();
+        await supabase
+          .from("payments")
+          .update({
+            status: "paid",
+            paid_at: nowIso,
+            transaction_id: adminTrxId,
+          })
+          .eq("order_id", orderId);
+
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: "active",
+            started_at: nowIso,
+            expires_at: newExpiryIso,
+          })
+          .eq("id", payment.subscription_id);
+
+        await supabase.from("notifications").insert([
+          {
+            user_id: targetUserId,
+            type: "subscription_active",
+            title: "HAIYO Premium Aktif",
+            message: `${resolvedPlan.name} aktif hingga ${new Date(
+              newExpiryIso
+            ).toLocaleDateString("id-ID", {
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            })}.`,
+            reference_id: payment.subscription_id,
+            is_read: false,
+          },
+          {
+            user_id: targetUserId,
+            type: "payment_success",
+            title: "Pembayaran Diverifikasi Admin",
+            message: `Pembayaran ${formatRupiah(
+              payment.amount
+            )} untuk ${resolvedPlan.name} telah disetujui Admin.`,
+            reference_id: payment.id,
+            is_read: false,
+          },
+        ]);
+      } catch {
+        // non-blocking
+      }
+    }
+
+    // 3. Update local state & active subscriptions
     const updated: LocalAppState = {
       ...fresh,
       payments: fresh.payments.map((p) =>
@@ -515,7 +719,7 @@ export default function AdminDashboardPage() {
           ? {
               ...p,
               status: "paid",
-              transaction_id: `ADM-${Date.now()}`,
+              transaction_id: adminTrxId,
               paid_at: nowIso,
             }
           : p
@@ -533,10 +737,10 @@ export default function AdminDashboardPage() {
       notifications: [
         {
           id: `notif-sub-${Date.now()}`,
-          user_id: payment.user_id,
+          user_id: targetUserId,
           type: "subscription_active",
           title: "HAIYO Premium Aktif",
-          message: `${plan?.name ?? "Premium"} aktif hingga ${new Date(
+          message: `${resolvedPlan.name} aktif hingga ${new Date(
             newExpiryIso
           ).toLocaleDateString("id-ID")}.`,
           reference_id: payment.subscription_id,
@@ -545,12 +749,12 @@ export default function AdminDashboardPage() {
         },
         {
           id: `notif-pay-${Date.now()}`,
-          user_id: payment.user_id,
+          user_id: targetUserId,
           type: "payment_success",
           title: "Pembayaran Diverifikasi Admin",
           message: `Pembayaran ${formatRupiah(
             payment.amount
-          )} telah disetujui.`,
+          )} telah disetujui Admin.`,
           reference_id: payment.id,
           is_read: false,
           created_at: nowIso,
@@ -561,9 +765,19 @@ export default function AdminDashboardPage() {
 
     saveAppState(updated);
     setAppState(updated);
+
+    // Update user row in Users tab
+    setManagedUsers((prev) =>
+      prev.map((u) => (u.id === targetUserId ? { ...u, is_premium: true } : u))
+    );
+
+    if (inspectedProof?.orderId === orderId) {
+      setInspectedProof(null);
+    }
+
     toast({
-      title: `Pembayaran ${orderId} Disetujui (PAID)!`,
-      description: "Paket HAIYO Premium user sekarang sudah aktif.",
+      title: `Pembayaran Disetujui (PAID)!`,
+      description: `${resolvedPlan.name} (${resolvedPlan.duration_days} Hari) untuk ${payment.user_name || "pengguna"} sekarang telah aktif.`,
       variant: "success",
     });
   };
@@ -1204,26 +1418,55 @@ export default function AdminDashboardPage() {
               <table className="w-full text-left text-[13px]">
                 <thead className="bg-[#f9f9fa] border-b border-[#E9E9EE] text-[#6F7078] font-bold">
                   <tr>
-                    <th className="p-4">User</th>
-                    <th className="p-4">Plan</th>
+                    <th className="p-4">Pengguna</th>
+                    <th className="p-4">Paket & Durasi</th>
                     <th className="p-4">Status</th>
-                    <th className="p-4">Start</th>
-                    <th className="p-4">Expiry</th>
-                    <th className="p-4">Created</th>
+                    <th className="p-4">Mulai Aktif</th>
+                    <th className="p-4">Berakhir Pada</th>
+                    <th className="p-4">Dibuat</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E9E9EE]">
                   {allSubscriptions
                     .filter((s) => subFilter === "all" || s.status === subFilter)
                     .map((sub) => {
-                      const plan = MASTER_SUBSCRIPTION_PLANS.find(
-                        (p) => p.id === sub.plan_id
+                      const plan = resolveSubscriptionPlan(
+                        sub.plan_code ?? sub.plan_id,
+                        undefined
+                      );
+                      const uInfo = resolveUserDisplay(
+                        sub.user_id,
+                        sub.user_name,
+                        sub.user_email
                       );
                       return (
-                        <tr key={sub.id}>
-                          <td className="p-4 font-bold">{sub.user_id}</td>
+                        <tr key={sub.id} className="hover:bg-[#f9f9fa]/60">
                           <td className="p-4">
-                            {plan?.name ?? sub.plan_id}
+                            <div className="flex items-center gap-2.5">
+                              <Avatar
+                                name={uInfo.name}
+                                src={uInfo.avatar_url}
+                                size="sm"
+                              />
+                              <div>
+                                <p className="font-bold text-[#1d1d1d]">
+                                  {uInfo.name}
+                                </p>
+                                <p className="text-[11px] text-[#6F7078]">
+                                  {uInfo.email}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className="space-y-0.5">
+                              <p className="font-bold text-[#1d1d1d]">
+                                {sub.plan_name || plan.name}
+                              </p>
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-[#eaf5ef] text-[#267a50] text-[11px] font-bold">
+                                {sub.duration_days ?? plan.duration_days} Hari
+                              </span>
+                            </div>
                           </td>
                           <td className="p-4">
                             <Badge
@@ -1241,14 +1484,24 @@ export default function AdminDashboardPage() {
                           <td className="p-4 text-[#6F7078]">
                             {sub.started_at
                               ? new Date(sub.started_at).toLocaleDateString(
-                                  "id-ID"
+                                  "id-ID",
+                                  {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  }
                                 )
                               : "-"}
                           </td>
                           <td className="p-4 font-semibold text-[#267a50]">
                             {sub.expires_at
                               ? new Date(sub.expires_at).toLocaleDateString(
-                                  "id-ID"
+                                  "id-ID",
+                                  {
+                                    day: "numeric",
+                                    month: "short",
+                                    year: "numeric",
+                                  }
                                 )
                               : "-"}
                           </td>
@@ -1465,32 +1718,18 @@ export default function AdminDashboardPage() {
 
               {/* Mode Verifikasi & Nomor WhatsApp Konfirmasi */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-[#E9E9EE]">
-                <Select
-                  label="Mode Aktivasi Saat User Klik 'Saya Sudah Bayar'"
-                  value={
-                    paymentConfigDraft.requireAdminApproval
-                      ? "manual_admin"
-                      : "instant_auto"
-                  }
-                  onChange={(e) =>
-                    setPaymentConfigDraft((prev) => ({
-                      ...prev,
-                      requireAdminApproval: e.target.value === "manual_admin",
-                    }))
-                  }
-                  options={[
-                    {
-                      value: "instant_auto",
-                      label:
-                        "Otomatis Aktif Saat User Klik Konfirmasi (Praktis)",
-                    },
-                    {
-                      value: "manual_admin",
-                      label:
-                        "Tunggu Admin Klik 'Setujui (PAID)' di Tabel Bawah",
-                    },
-                  ]}
-                />
+                <div className="space-y-1.5">
+                  <label className="block text-[13px] font-semibold text-[#1d1d1d]">
+                    Mode Aktivasi Pembayaran
+                  </label>
+                  <div className="px-4 py-3 rounded-[14px] bg-[#eaf5ef] border border-[#267a50]/30 flex items-center gap-2.5 text-[13px] font-bold text-[#267a50]">
+                    <ShieldCheck className="w-4 h-4 shrink-0" />
+                    <span>
+                      Verifikasi Manual Admin (Wajib Bukti Transfer & Klik
+                      Setujui)
+                    </span>
+                  </div>
+                </div>
 
                 <Input
                   label="Nomor WhatsApp Konfirmasi Bukti Transfer (Opsional)"
@@ -1526,9 +1765,9 @@ export default function AdminDashboardPage() {
                     2. Daftar Transaksi & Persetujuan Pembayaran
                   </h2>
                   <p className="text-[13px] text-[#6F7078]">
-                    Cek mutasi Rekening/E-Wallet kamu lalu klik{" "}
-                    <strong>Setujui (PAID)</strong> untuk mengaktifkan HAIYO
-                    Premium user.
+                    Periksa foto bukti transfer atau mutasi Rekening/E-Wallet
+                    kamu, lalu klik <strong>Setujui (PAID)</strong> untuk
+                    mengaktifkan paket HAIYO Premium yang dipilih user.
                   </p>
                 </div>
                 <div className="w-56">
@@ -1537,9 +1776,9 @@ export default function AdminDashboardPage() {
                     onChange={(e) => setPaymentFilter(e.target.value)}
                     options={[
                       { value: "all", label: "Semua Status" },
-                      { value: "paid", label: "Paid" },
-                      { value: "pending", label: "Pending" },
-                      { value: "failed", label: "Failed" },
+                      { value: "paid", label: "Paid (Disetujui)" },
+                      { value: "pending", label: "Pending (Menunggu)" },
+                      { value: "failed", label: "Failed (Ditolak)" },
                       { value: "expired", label: "Expired" },
                       { value: "cancelled", label: "Cancelled" },
                     ]}
@@ -1552,12 +1791,11 @@ export default function AdminDashboardPage() {
                   <thead className="bg-[#f9f9fa] border-b border-[#E9E9EE] text-[#6F7078] font-bold">
                     <tr>
                       <th className="p-4">Order ID</th>
-                      <th className="p-4">User</th>
-                      <th className="p-4">Amount</th>
-                      <th className="p-4">Gateway</th>
-                      <th className="p-4">Method</th>
+                      <th className="p-4">Pengguna</th>
+                      <th className="p-4">Paket Dipilih</th>
+                      <th className="p-4">Nominal & Metode</th>
+                      <th className="p-4">Bukti Transfer</th>
                       <th className="p-4">Status</th>
-                      <th className="p-4">Paid At</th>
                       <th className="p-4">Actions</th>
                     </tr>
                   </thead>
@@ -1567,65 +1805,209 @@ export default function AdminDashboardPage() {
                         (p) =>
                           paymentFilter === "all" || p.status === paymentFilter
                       )
-                      .map((p) => (
-                        <tr key={p.id} className="hover:bg-[#f9f9fa]/60">
-                          <td className="p-4 font-mono font-semibold">
-                            {p.order_id}
-                          </td>
-                          <td className="p-4">{p.user_id}</td>
-                          <td className="p-4 font-bold">
-                            {formatRupiah(p.amount)}
-                          </td>
-                          <td className="p-4 uppercase text-[#6F7078]">
-                            {p.gateway}
-                          </td>
-                          <td className="p-4 uppercase font-semibold">
-                            {p.payment_method}
-                          </td>
-                          <td className="p-4">
-                            <Badge
-                              variant={
-                                p.status === "paid"
-                                  ? "success"
-                                  : p.status === "pending"
-                                  ? "warning"
-                                  : "danger"
-                              }
-                            >
-                              {p.status.toUpperCase()}
-                            </Badge>
-                          </td>
-                          <td className="p-4 text-[#6F7078]">
-                            {p.paid_at
-                              ? new Date(p.paid_at).toLocaleString("id-ID")
-                              : "-"}
-                          </td>
-                          <td className="p-4">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleAdminVerifyPayment(p.order_id, "paid")
-                                }
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#22C55E]/15 text-[#16A34A] hover:bg-[#22C55E] hover:text-white font-semibold text-[11px] transition-colors cursor-pointer"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Setujui (PAID)</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleAdminVerifyPayment(p.order_id, "failed")
-                                }
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EF4444]/15 text-[#EF4444] hover:bg-[#EF4444] hover:text-white font-semibold text-[11px] transition-colors cursor-pointer"
-                              >
-                                <XCircle className="w-3.5 h-3.5" />
-                                <span>Tolak</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      .map((p) => {
+                        const subRecord = allSubscriptions.find(
+                          (s) => s.id === p.subscription_id
+                        );
+                        const resolvedPlan = resolveSubscriptionPlan(
+                          p.plan_code ??
+                            p.plan_id ??
+                            subRecord?.plan_code ??
+                            subRecord?.plan_id,
+                          p.amount
+                        );
+                        const uInfo = resolveUserDisplay(
+                          p.user_id,
+                          p.user_name ?? subRecord?.user_name,
+                          p.user_email ?? subRecord?.user_email
+                        );
+                        const proofUrl =
+                          p.proof_url ??
+                          (p.transaction_id?.startsWith("PROOF|")
+                            ? p.transaction_id.slice(6)
+                            : null);
+
+                        return (
+                          <tr key={p.id} className="hover:bg-[#f9f9fa]/60">
+                            <td className="p-4">
+                              <p className="font-mono font-bold text-[#1d1d1d]">
+                                {p.order_id}
+                              </p>
+                              <p className="text-[11px] text-[#6F7078]">
+                                {new Date(p.created_at).toLocaleString(
+                                  "id-ID",
+                                  {
+                                    day: "numeric",
+                                    month: "short",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  }
+                                )}
+                              </p>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-2.5">
+                                <Avatar
+                                  name={uInfo.name}
+                                  src={uInfo.avatar_url}
+                                  size="sm"
+                                />
+                                <div>
+                                  <p className="font-bold text-[#1d1d1d]">
+                                    {uInfo.name}
+                                  </p>
+                                  <p className="text-[11px] text-[#6F7078]">
+                                    {uInfo.email}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <p className="font-bold text-[#1d1d1d]">
+                                {p.plan_name || resolvedPlan.name}
+                              </p>
+                              <span className="inline-block px-2 py-0.5 rounded-full bg-[#eaf5ef] text-[#267a50] text-[11px] font-bold mt-0.5">
+                                {p.duration_days ?? resolvedPlan.duration_days}{" "}
+                                Hari
+                              </span>
+                            </td>
+                            <td className="p-4">
+                              <p className="font-extrabold text-[#267a50]">
+                                {formatRupiah(p.amount)}
+                              </p>
+                              <p className="text-[11px] font-semibold uppercase text-[#6F7078]">
+                                {p.payment_method === "bca_va"
+                                  ? `Bank ${appState.paymentConfig.bankName}`
+                                  : p.payment_method === "gopay"
+                                  ? "E-Wallet"
+                                  : p.payment_method}
+                              </p>
+                            </td>
+                            <td className="p-4">
+                              {proofUrl ? (
+                                <div className="flex items-center gap-2">
+                                  <img
+                                    src={proofUrl}
+                                    alt="Bukti Transfer"
+                                    onClick={() =>
+                                      setInspectedProof({
+                                        proofUrl,
+                                        orderId: p.order_id,
+                                        userId: p.user_id,
+                                        userName: uInfo.name,
+                                        userEmail: uInfo.email,
+                                        planName:
+                                          p.plan_name || resolvedPlan.name,
+                                        durationDays:
+                                          p.duration_days ??
+                                          resolvedPlan.duration_days,
+                                        amount: p.amount,
+                                        paymentMethod: p.payment_method,
+                                        status: p.status,
+                                        userConfirmedAt: p.user_confirmed_at,
+                                        createdAt: p.created_at,
+                                      })
+                                    }
+                                    className="w-10 h-10 rounded-[8px] object-cover border border-[#E9E9EE] cursor-pointer hover:opacity-80 shrink-0"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setInspectedProof({
+                                        proofUrl,
+                                        orderId: p.order_id,
+                                        userId: p.user_id,
+                                        userName: uInfo.name,
+                                        userEmail: uInfo.email,
+                                        planName:
+                                          p.plan_name || resolvedPlan.name,
+                                        durationDays:
+                                          p.duration_days ??
+                                          resolvedPlan.duration_days,
+                                        amount: p.amount,
+                                        paymentMethod: p.payment_method,
+                                        status: p.status,
+                                        userConfirmedAt: p.user_confirmed_at,
+                                        createdAt: p.created_at,
+                                      })
+                                    }
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#eaf5ef] text-[#267a50] hover:bg-[#267a50] hover:text-white font-bold text-[11px] transition-colors cursor-pointer"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>Lihat Bukti</span>
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-[11px] text-[#6F7078] italic">
+                                  Belum upload bukti
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4">
+                              <div className="space-y-1">
+                                <Badge
+                                  variant={
+                                    p.status === "paid"
+                                      ? "success"
+                                      : p.status === "pending"
+                                      ? "warning"
+                                      : "danger"
+                                  }
+                                >
+                                  {p.status === "pending" &&
+                                  (proofUrl || p.user_confirmed_at)
+                                    ? "SIAP VERIFIKASI"
+                                    : p.status.toUpperCase()}
+                                </Badge>
+                                {p.paid_at && (
+                                  <p className="text-[10px] text-[#6F7078]">
+                                    {new Date(p.paid_at).toLocaleString(
+                                      "id-ID"
+                                    )}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              {p.status === "paid" ? (
+                                <span className="inline-flex items-center gap-1 text-[12px] font-bold text-[#16A34A]">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                  <span>Aktif</span>
+                                </span>
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleAdminVerifyPayment(
+                                        p.order_id,
+                                        "paid"
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#22C55E] text-white hover:bg-[#16A34A] font-bold text-[11px] shadow-sm transition-colors cursor-pointer"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Setujui (PAID)</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleAdminVerifyPayment(
+                                        p.order_id,
+                                        "failed"
+                                      )
+                                    }
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-[#EF4444]/15 text-[#EF4444] hover:bg-[#EF4444] hover:text-white font-semibold text-[11px] transition-colors cursor-pointer"
+                                  >
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    <span>Tolak</span>
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>
@@ -2197,6 +2579,78 @@ export default function AdminDashboardPage() {
               <Button
                 variant="secondary"
                 onClick={() => setInspectedUser(null)}
+              >
+                Tutup
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Inspect Payment Proof Modal */}
+      {inspectedProof && (
+        <Modal
+          isOpen={Boolean(inspectedProof)}
+          onClose={() => setInspectedProof(null)}
+          title="Bukti Transfer Pembayaran"
+          description={`${inspectedProof.orderId} · ${inspectedProof.userName}`}
+        >
+          <div className="space-y-4">
+            <div className="rounded-[16px] overflow-hidden border border-[#E9E9EE] bg-[#f9f9fa] max-h-[60dvh] flex items-center justify-center p-2">
+              <img
+                src={inspectedProof.proofUrl}
+                alt="Bukti Transfer"
+                className="max-w-full max-h-[58dvh] object-contain rounded-[10px]"
+              />
+            </div>
+
+            <div className="p-4 rounded-[16px] bg-[#f9f9fa] border border-[#E9E9EE] text-[13px] space-y-2">
+              <div className="flex justify-between">
+                <span className="text-[#6F7078]">Nama Pengguna</span>
+                <span className="font-bold text-[#1d1d1d]">
+                  {inspectedProof.userName} ({inspectedProof.userEmail})
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#6F7078]">Paket Dipilih</span>
+                <span className="font-bold text-[#267a50]">
+                  {inspectedProof.planName} ({inspectedProof.durationDays} Hari)
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#6F7078]">Nominal & Metode</span>
+                <span className="font-extrabold text-[#1d1d1d] uppercase">
+                  {formatRupiah(inspectedProof.amount)} ·{" "}
+                  {inspectedProof.paymentMethod}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+              {inspectedProof.status !== "paid" && (
+                <>
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      handleAdminVerifyPayment(inspectedProof.orderId, "failed")
+                    }
+                  >
+                    Tolak
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={() =>
+                      handleAdminVerifyPayment(inspectedProof.orderId, "paid")
+                    }
+                    leftIcon={<CheckCircle2 className="w-4 h-4" />}
+                  >
+                    Setujui & Aktifkan Premium (PAID)
+                  </Button>
+                </>
+              )}
+              <Button
+                variant="secondary"
+                onClick={() => setInspectedProof(null)}
               >
                 Tutup
               </Button>

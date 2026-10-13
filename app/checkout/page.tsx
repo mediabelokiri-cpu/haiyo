@@ -23,6 +23,7 @@ import {
   LocalAppState,
   MASTER_SUBSCRIPTION_PLANS,
   saveAppState,
+  upsertPaymentOrderInLedger,
 } from "@/lib/store/app-state";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { formatRupiah } from "@/lib/utils";
@@ -80,30 +81,41 @@ function CheckoutContent() {
   /**
    * Payment Activation Rule (PRD Section 26 & UI/UX Section 54):
    * Checkout ONLY creates a `pending` order and redirects to Payment Pending screen.
-   * Premium is NEVER activated directly by Checkout; it awaits Server Webhook validation.
+   * Premium is NEVER activated directly by Checkout; it awaits Admin verification.
    */
   const handleCreateOrder = async () => {
     setIsCreatingOrder(true);
     try {
       const fresh = loadAppState();
       const userId = fresh.currentUser?.id ?? "user-me";
+      const userName = fresh.currentUser?.profile.name || "Pengguna HAIYO";
+      const userEmail = fresh.currentUser?.email || "";
       const subId = `sub-${Date.now()}`;
+      const payId = `pay-${Date.now()}`;
       const orderId = `HAIYO-${Date.now()}`;
+      const nowIso = new Date().toISOString();
 
       const newSub = {
         id: subId,
         user_id: userId,
+        user_name: userName,
+        user_email: userEmail,
         plan_id: selectedPlan.id,
+        plan_code: selectedPlan.code,
+        plan_name: selectedPlan.name,
+        duration_days: selectedPlan.duration_days,
         status: "pending" as const,
         started_at: null,
         expires_at: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: nowIso,
+        updated_at: nowIso,
       };
 
       const newPayment = {
-        id: `pay-${Date.now()}`,
+        id: payId,
         user_id: userId,
+        user_name: userName,
+        user_email: userEmail,
         subscription_id: subId,
         order_id: orderId,
         transaction_id: null,
@@ -112,8 +124,14 @@ function CheckoutContent() {
         amount: selectedPlan.price,
         status: "pending" as const,
         paid_at: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        plan_id: selectedPlan.id,
+        plan_code: selectedPlan.code,
+        plan_name: selectedPlan.name,
+        duration_days: selectedPlan.duration_days,
+        proof_url: null,
+        user_confirmed_at: null,
+        created_at: nowIso,
+        updated_at: nowIso,
       };
 
       const updated: LocalAppState = {
@@ -130,6 +148,34 @@ function CheckoutContent() {
           const {
             data: { user },
           } = await supabase.auth.getUser();
+
+          const effectiveUserId = user?.id ?? userId;
+          const effectiveEmail = user?.email ?? userEmail;
+
+          await upsertPaymentOrderInLedger({
+            order_id: orderId,
+            payment_id: payId,
+            subscription_id: subId,
+            user_id: effectiveUserId,
+            user_name: userName,
+            user_email: effectiveEmail,
+            plan_id: selectedPlan.id,
+            plan_code: selectedPlan.code,
+            plan_name: selectedPlan.name,
+            duration_days: selectedPlan.duration_days,
+            amount: selectedPlan.price,
+            gateway: "direct",
+            payment_method: paymentMethod,
+            status: "pending",
+            proof_url: null,
+            user_confirmed_at: null,
+            transaction_id: null,
+            started_at: null,
+            expires_at: null,
+            paid_at: null,
+            created_at: nowIso,
+            updated_at: nowIso,
+          });
 
           if (user) {
             const { data: dbPlan } = await supabase
@@ -169,7 +215,7 @@ function CheckoutContent() {
 
       toast({
         title: "Pesanan dibuat",
-        description: "Selesaikan pembayaran untuk mengaktifkan Premium.",
+        description: "Selesaikan pembayaran dan upload bukti transfer untuk mengaktifkan Premium.",
         variant: "info",
       });
       router.push(`/payment/status?order_id=${encodeURIComponent(orderId)}`);

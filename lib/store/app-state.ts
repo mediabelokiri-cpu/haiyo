@@ -93,8 +93,53 @@ export const DEFAULT_PAYMENT_CONFIG: PaymentRecipientConfig = {
   bankAccountNumber: "8801081299",
   bankAccountName: "Admin HAIYO",
   whatsappConfirmationNumber: "",
-  requireAdminApproval: false,
+  requireAdminApproval: true,
 };
+
+export interface PaymentOrderLedgerEntry {
+  order_id: string;
+  payment_id: string;
+  subscription_id: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  plan_id: string;
+  plan_code: SubscriptionPlanCode;
+  plan_name: string;
+  duration_days: number;
+  amount: number;
+  gateway: string;
+  payment_method: string;
+  status: "pending" | "paid" | "failed" | "expired" | "cancelled";
+  proof_url: string | null;
+  user_confirmed_at: string | null;
+  transaction_id: string | null;
+  started_at: string | null;
+  expires_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function resolveSubscriptionPlan(
+  planIdOrCode?: string | null,
+  amount?: number | null
+): SubscriptionPlan {
+  if (planIdOrCode) {
+    const byIdOrCode = MASTER_SUBSCRIPTION_PLANS.find(
+      (p) =>
+        p.id === planIdOrCode ||
+        p.code === planIdOrCode ||
+        p.name.toLowerCase() === planIdOrCode.toLowerCase()
+    );
+    if (byIdOrCode) return byIdOrCode;
+  }
+  if (typeof amount === "number") {
+    const byPrice = MASTER_SUBSCRIPTION_PLANS.find((p) => p.price === amount);
+    if (byPrice) return byPrice;
+  }
+  return MASTER_SUBSCRIPTION_PLANS[1];
+}
 
 export interface HomepageStepItem {
   step: string;
@@ -630,6 +675,91 @@ async function touchLivePresenceAndLocation(userId: string): Promise<void> {
   }
 }
 
+export async function fetchPaymentOrdersLedger(): Promise<
+  PaymentOrderLedgerEntry[]
+> {
+  if (!isSupabaseConfigured()) return [];
+  try {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "payment_orders_ledger")
+      .maybeSingle();
+
+    if (data?.value && Array.isArray(data.value)) {
+      return data.value as PaymentOrderLedgerEntry[];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export async function upsertPaymentOrderInLedger(
+  partial: Partial<PaymentOrderLedgerEntry> & { order_id: string }
+): Promise<PaymentOrderLedgerEntry[]> {
+  if (!isSupabaseConfigured()) return [];
+  try {
+    const supabase = createClient();
+    const currentList = await fetchPaymentOrdersLedger();
+    const nowIso = new Date().toISOString();
+    const idx = currentList.findIndex(
+      (item) => item.order_id === partial.order_id
+    );
+
+    let nextList: PaymentOrderLedgerEntry[];
+    if (idx >= 0) {
+      const existing = currentList[idx];
+      const merged: PaymentOrderLedgerEntry = {
+        ...existing,
+        ...partial,
+        updated_at: nowIso,
+      };
+      nextList = currentList.map((item, i) => (i === idx ? merged : item));
+    } else {
+      const plan = resolveSubscriptionPlan(
+        partial.plan_code ?? partial.plan_id,
+        partial.amount
+      );
+      const created: PaymentOrderLedgerEntry = {
+        order_id: partial.order_id,
+        payment_id: partial.payment_id ?? `pay-${Date.now()}`,
+        subscription_id: partial.subscription_id ?? `sub-${Date.now()}`,
+        user_id: partial.user_id ?? "user-me",
+        user_name: partial.user_name ?? "Pengguna HAIYO",
+        user_email: partial.user_email ?? "",
+        plan_id: partial.plan_id ?? plan.id,
+        plan_code: partial.plan_code ?? plan.code,
+        plan_name: partial.plan_name ?? plan.name,
+        duration_days: partial.duration_days ?? plan.duration_days,
+        amount: partial.amount ?? plan.price,
+        gateway: partial.gateway ?? "direct",
+        payment_method: partial.payment_method ?? "qris",
+        status: partial.status ?? "pending",
+        proof_url: partial.proof_url ?? null,
+        user_confirmed_at: partial.user_confirmed_at ?? null,
+        transaction_id: partial.transaction_id ?? null,
+        started_at: partial.started_at ?? null,
+        expires_at: partial.expires_at ?? null,
+        paid_at: partial.paid_at ?? null,
+        created_at: partial.created_at ?? nowIso,
+        updated_at: nowIso,
+      };
+      nextList = [created, ...currentList];
+    }
+
+    await supabase.from("site_settings").upsert({
+      key: "payment_orders_ledger",
+      value: nextList,
+    });
+
+    return nextList;
+  } catch {
+    return [];
+  }
+}
+
 export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
   if (typeof window === "undefined" || !isSupabaseConfigured()) {
     return loadAppState();
@@ -642,12 +772,17 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
       : getDefaultAppState();
 
     let changed = false;
+    let ledgerEntries: PaymentOrderLedgerEntry[] = [];
 
     // 1. Pull site_settings (non-blocking if empty)
     const { data: settingsData } = await supabase
       .from("site_settings")
       .select("key, value")
-      .in("key", ["payment_config", "homepage_config"]);
+      .in("key", [
+        "payment_config",
+        "homepage_config",
+        "payment_orders_ledger",
+      ]);
 
     if (Array.isArray(settingsData) && settingsData.length > 0) {
       for (const row of settingsData) {
@@ -655,6 +790,7 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
           current.paymentConfig = {
             ...DEFAULT_PAYMENT_CONFIG,
             ...(row.value as Partial<PaymentRecipientConfig>),
+            requireAdminApproval: true,
           };
           changed = true;
         } else if (row.key === "homepage_config" && row.value) {
@@ -663,6 +799,11 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
             ...(row.value as Partial<HomepageConfig>),
           };
           changed = true;
+        } else if (
+          row.key === "payment_orders_ledger" &&
+          Array.isArray(row.value)
+        ) {
+          ledgerEntries = row.value as PaymentOrderLedgerEntry[];
         }
       }
     }
@@ -823,11 +964,11 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
         changed = true;
       }
 
-      if (Array.isArray(subRows)) {
+      if (Array.isArray(subRows) && subRows.length > 0) {
         current.subscriptions = subRows as SubscriptionRecord[];
         changed = true;
       }
-      if (Array.isArray(payRows)) {
+      if (Array.isArray(payRows) && payRows.length > 0) {
         current.payments = payRows as PaymentRecord[];
         changed = true;
       }
@@ -861,8 +1002,100 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
       }
     }
 
-    // 3. Fetch all active onboarded candidate profiles from Supabase
+    // Merge user's orders from payment_orders_ledger so Admin approvals immediately activate Premium
     const myId = user?.id ?? current.currentUser?.id ?? "";
+    const myEmail = (user?.email ?? current.currentUser?.email ?? "")
+      .trim()
+      .toLowerCase();
+
+    if (myId && ledgerEntries.length > 0) {
+      const myOrders = ledgerEntries.filter(
+        (entry) =>
+          entry.user_id === myId ||
+          (myEmail && entry.user_email?.trim().toLowerCase() === myEmail)
+      );
+
+      if (myOrders.length > 0) {
+        const payMap = new Map<string, PaymentRecord>();
+        for (const p of current.payments) {
+          payMap.set(p.order_id, p);
+        }
+        const subMap = new Map<string, SubscriptionRecord>();
+        for (const s of current.subscriptions) {
+          subMap.set(s.id, s);
+        }
+
+        for (const entry of myOrders) {
+          const existingPay = payMap.get(entry.order_id);
+          const resolvedPlan = resolveSubscriptionPlan(
+            entry.plan_code ?? entry.plan_id,
+            entry.amount
+          );
+          payMap.set(entry.order_id, {
+            id: existingPay?.id ?? entry.payment_id,
+            user_id: myId,
+            subscription_id:
+              existingPay?.subscription_id ?? entry.subscription_id,
+            order_id: entry.order_id,
+            transaction_id:
+              entry.transaction_id ?? existingPay?.transaction_id ?? null,
+            gateway: entry.gateway || "direct",
+            payment_method: entry.payment_method,
+            amount: entry.amount,
+            status: entry.status,
+            paid_at: entry.paid_at ?? existingPay?.paid_at ?? null,
+            created_at: entry.created_at,
+            updated_at: entry.updated_at,
+            user_name: entry.user_name,
+            user_email: entry.user_email,
+            plan_id: resolvedPlan.id,
+            plan_code: resolvedPlan.code,
+            plan_name: resolvedPlan.name,
+            duration_days: resolvedPlan.duration_days,
+            proof_url: entry.proof_url ?? existingPay?.proof_url ?? null,
+            user_confirmed_at:
+              entry.user_confirmed_at ?? existingPay?.user_confirmed_at ?? null,
+          });
+
+          const subId = existingPay?.subscription_id ?? entry.subscription_id;
+          const existingSub = subMap.get(subId);
+          const mappedSubStatus =
+            entry.status === "paid"
+              ? "active"
+              : entry.status === "failed" || entry.status === "cancelled"
+              ? "cancelled"
+              : existingSub?.status ?? "pending";
+
+          subMap.set(subId, {
+            id: subId,
+            user_id: myId,
+            plan_id: resolvedPlan.id,
+            plan_code: resolvedPlan.code,
+            plan_name: resolvedPlan.name,
+            duration_days: resolvedPlan.duration_days,
+            user_name: entry.user_name,
+            user_email: entry.user_email,
+            status: mappedSubStatus,
+            started_at: entry.started_at ?? existingSub?.started_at ?? null,
+            expires_at: entry.expires_at ?? existingSub?.expires_at ?? null,
+            created_at: entry.created_at,
+            updated_at: entry.updated_at,
+          });
+        }
+
+        current.payments = Array.from(payMap.values()).sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        current.subscriptions = Array.from(subMap.values()).sort(
+          (a, b) =>
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        changed = true;
+      }
+    }
+
+    // 3. Fetch all active onboarded candidate profiles from Supabase
     const myCity = current.currentUser?.profile.city ?? "";
     const myLat = current.currentUser?.profile.latitude ?? null;
     const myLon = current.currentUser?.profile.longitude ?? null;
@@ -913,6 +1146,15 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
           )
           .map((s) => s.user_id)
       );
+      for (const entry of ledgerEntries) {
+        if (
+          entry.status === "paid" &&
+          entry.expires_at &&
+          new Date(entry.expires_at).getTime() > nowMs
+        ) {
+          premiumUserSet.add(entry.user_id);
+        }
+      }
 
       const mappedCandidates: DiscoveryProfileCard[] = otherProfiles.map(
         (prof) => {
@@ -1039,7 +1281,7 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
             .limit(60),
         ]);
 
-        if (Array.isArray(notifRows)) {
+        if (Array.isArray(notifRows) && notifRows.length > 0) {
           current.notifications = notifRows as NotificationRecord[];
           changed = true;
         }
@@ -1087,6 +1329,56 @@ export async function syncAppStateFromSupabase(): Promise<LocalAppState> {
           } else {
             current.messages = [];
           }
+        }
+      }
+    }
+
+    // Ensure local notifications exist for any newly approved subscription in ledger
+    if (myId && ledgerEntries.length > 0) {
+      const myPaidOrders = ledgerEntries.filter(
+        (entry) =>
+          (entry.user_id === myId ||
+            (myEmail && entry.user_email?.trim().toLowerCase() === myEmail)) &&
+          entry.status === "paid" &&
+          entry.expires_at
+      );
+      for (const paidEntry of myPaidOrders) {
+        const hasNotif = current.notifications.some(
+          (n) =>
+            n.reference_id === paidEntry.subscription_id ||
+            n.reference_id === paidEntry.order_id
+        );
+        if (!hasNotif) {
+          current.notifications = [
+            {
+              id: `notif-sub-${paidEntry.order_id}`,
+              user_id: myId,
+              type: "subscription_active",
+              title: "HAIYO Premium Aktif",
+              message: `${paidEntry.plan_name} aktif hingga ${new Date(
+                paidEntry.expires_at!
+              ).toLocaleDateString("id-ID", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}.`,
+              reference_id: paidEntry.subscription_id,
+              is_read: false,
+              created_at: paidEntry.paid_at ?? new Date().toISOString(),
+            },
+            {
+              id: `notif-pay-${paidEntry.order_id}`,
+              user_id: myId,
+              type: "payment_success",
+              title: "Pembayaran Diverifikasi Admin",
+              message: `Pembayaran untuk ${paidEntry.plan_name} telah disetujui oleh Admin.`,
+              reference_id: paidEntry.order_id,
+              is_read: false,
+              created_at: paidEntry.paid_at ?? new Date().toISOString(),
+            },
+            ...current.notifications,
+          ];
+          changed = true;
         }
       }
     }
@@ -1156,7 +1448,10 @@ export function getActiveSubscription(
     )[0];
 
   if (!active) return null;
-  const plan = MASTER_SUBSCRIPTION_PLANS.find((p) => p.id === active.plan_id);
+  const plan = resolveSubscriptionPlan(
+    active.plan_code ?? active.plan_id,
+    undefined
+  );
   return { ...active, plan };
 }
 

@@ -168,6 +168,11 @@ export interface SubscriptionRecord {
   expires_at: string | null;
   created_at: string;
   updated_at: string;
+  user_name?: string;
+  user_email?: string;
+  plan_code?: SubscriptionPlanCode;
+  plan_name?: string;
+  duration_days?: number;
 }
 
 /** 14. payments */
@@ -184,6 +189,14 @@ export interface PaymentRecord {
   paid_at: string | null;
   created_at: string;
   updated_at: string;
+  user_name?: string;
+  user_email?: string;
+  plan_id?: string;
+  plan_code?: SubscriptionPlanCode;
+  plan_name?: string;
+  duration_days?: number;
+  proof_url?: string | null;
+  user_confirmed_at?: string | null;
 }
 
 /** 15. notifications */
