@@ -250,7 +250,7 @@ export default function AdminDashboardPage() {
 
         if (Array.isArray(profileRows)) {
           const mapped: ManagedUserRow[] = profileRows
-            .filter((p) => !p.is_admin)
+            .filter((p) => !p.is_admin && p.status !== "deleted")
             .map((p) => {
               const primaryPhoto =
                 (photoRows ?? []).find(
@@ -420,24 +420,58 @@ export default function AdminDashboardPage() {
     targetId: string,
     nextStatus: UserStatus
   ) => {
-    await fetch("/api/admin/action", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: "user_status",
-        targetId,
-        status: nextStatus,
-      }),
-    });
+    if (
+      nextStatus === "deleted" &&
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Apakah Anda yakin ingin menghapus pengguna ini secara permanen dari database? Semua data dan foto profil akan dibersihkan total."
+      )
+    ) {
+      return;
+    }
 
-    setManagedUsers((prev) =>
-      prev.map((u) => (u.id === targetId ? { ...u, status: nextStatus } : u))
-    );
+    try {
+      const res = await fetch("/api/admin/action", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-secret": "admin@haiyo.id",
+        },
+        body: JSON.stringify({
+          type: "user_status",
+          targetId,
+          status: nextStatus,
+        }),
+      });
 
-    toast({
-      title: `Status pengguna diubah menjadi ${nextStatus.toUpperCase()}.`,
-      variant: "success",
-    });
+      if (!res.ok) {
+        const err = (await res.json()) as { error?: string };
+        throw new Error(err.error || "Gagal memproses aksi moderasi.");
+      }
+
+      if (nextStatus === "deleted") {
+        setManagedUsers((prev) => prev.filter((u) => u.id !== targetId));
+        toast({
+          title: "Pengguna Dihapus Permanen",
+          description: "Data dan foto pengguna telah dibersihkan dari database.",
+          variant: "success",
+        });
+      } else {
+        setManagedUsers((prev) =>
+          prev.map((u) => (u.id === targetId ? { ...u, status: nextStatus } : u))
+        );
+        toast({
+          title: `Status pengguna diubah menjadi ${nextStatus.toUpperCase()}.`,
+          variant: "success",
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Gagal memproses aksi",
+        description: err instanceof Error ? err.message : "Terjadi kesalahan.",
+        variant: "error",
+      });
+    }
   };
 
   // Handle Report Moderation Action (Review, Resolve, Dismiss) via Server API
@@ -447,7 +481,10 @@ export default function AdminDashboardPage() {
   ) => {
     await fetch("/api/admin/action", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-secret": "admin@haiyo.id",
+      },
       body: JSON.stringify({
         type: "report_status",
         targetId: reportId,
