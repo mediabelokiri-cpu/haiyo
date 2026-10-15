@@ -137,6 +137,8 @@ export default function AdminDashboardPage() {
     userConfirmedAt?: string | null;
     createdAt: string;
   } | null>(null);
+  const [isSavingPaymentConfig, setIsSavingPaymentConfig] =
+    useState<boolean>(false);
 
   useEffect(() => {
     const loaded = loadAppState();
@@ -476,9 +478,6 @@ export default function AdminDashboardPage() {
   };
 
   // Handle QRIS Image Upload — keep raw file for server-side Storage upload on save
-  const [isSavingPaymentConfig, setIsSavingPaymentConfig] =
-    useState<boolean>(false);
-
   const handleQrisFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
