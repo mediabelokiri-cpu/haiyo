@@ -19,6 +19,7 @@ import {
   useToast,
 } from "@/components/ui";
 import {
+  fetchPaymentConfigFromServer,
   loadAppState,
   LocalAppState,
   MASTER_SUBSCRIPTION_PLANS,
@@ -46,6 +47,10 @@ function CheckoutContent() {
 
   useEffect(() => {
     setAppState(loadAppState());
+    // Fetch live payment config from server (bypasses localStorage dummy defaults)
+    void fetchPaymentConfigFromServer().then(() => {
+      setAppState(loadAppState());
+    });
   }, []);
 
   if (!appState) return null;

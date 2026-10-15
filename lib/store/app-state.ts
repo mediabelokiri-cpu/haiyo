@@ -372,6 +372,51 @@ export function logoutUserInState(): void {
   window.dispatchEvent(new Event("haiyo-state-updated"));
 }
 
+/**
+ * Fetches the live payment_config from the server API
+ * (/api/admin/payment-settings) and merges it into localStorage
+ * so every user device always shows the real admin bank/e-wallet/QRIS details.
+ *
+ * This is a lightweight GET — no auth required (settings are public).
+ */
+export async function fetchPaymentConfigFromServer(): Promise<PaymentRecipientConfig> {
+  try {
+    const res = await fetch("/api/admin/payment-settings", {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error("fetch failed");
+    const json = (await res.json()) as {
+      paymentConfig: Partial<PaymentRecipientConfig> | null;
+    };
+    if (json.paymentConfig) {
+      const merged: PaymentRecipientConfig = {
+        ...DEFAULT_PAYMENT_CONFIG,
+        ...json.paymentConfig,
+        requireAdminApproval: true,
+      };
+      // Persist into localStorage so loadAppState() returns the fresh value
+      if (typeof window !== "undefined") {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as LocalAppState;
+            parsed.paymentConfig = merged;
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            window.dispatchEvent(new Event("haiyo-state-updated"));
+          } catch {
+            // ignore
+          }
+        }
+      }
+      return merged;
+    }
+  } catch {
+    // Network error or server not reachable — fall back to local cache
+  }
+  return loadAppState().paymentConfig;
+}
+
 export function loadAppState(): LocalAppState {
   if (typeof window === "undefined") {
     return getDefaultAppState();

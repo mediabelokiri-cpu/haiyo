@@ -41,6 +41,7 @@ import {
 import {
   DEFAULT_HOMEPAGE_CONFIG,
   DEFAULT_PAYMENT_CONFIG,
+  fetchPaymentConfigFromServer,
   fetchPaymentOrdersLedger,
   HomepageConfig,
   loadAppState,
@@ -156,6 +157,11 @@ export default function AdminDashboardPage() {
       requireAdminApproval: true,
     });
     setHomepageDraft(loaded.homepageConfig ?? DEFAULT_HOMEPAGE_CONFIG);
+
+    // Fetch live payment config from server (service role) to populate form with real values
+    void fetchPaymentConfigFromServer().then((serverConfig) => {
+      setPaymentConfigDraft({ ...serverConfig, requireAdminApproval: true });
+    });
 
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -469,7 +475,10 @@ export default function AdminDashboardPage() {
     });
   };
 
-  // Handle QRIS Image Upload (Compresses personal/merchant QRIS image to WebP Data URL)
+  // Handle QRIS Image Upload — keep raw file for server-side Storage upload on save
+  const [isSavingPaymentConfig, setIsSavingPaymentConfig] =
+    useState<boolean>(false);
+
   const handleQrisFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -482,13 +491,24 @@ export default function AdminDashboardPage() {
         maxDimension: 900,
         quality: 0.85,
       });
+      // Show preview locally via data URL, but store the blob for server upload
+      (
+        (window as unknown as Record<string, unknown>)
+          .__haiyoQrisFile as unknown
+      );
+      // Attach compressed blob to window for FormData pickup in save handler
+      (window as unknown as Record<string, File>).__haiyoQrisFile = new File(
+        [compressed.blob],
+        `qris-${Date.now()}.webp`,
+        { type: "image/webp" }
+      );
       setPaymentConfigDraft((prev) => ({
         ...prev,
-        qrisImageUrl: compressed.dataUrl,
+        qrisImageUrl: compressed.dataUrl, // local preview only
       }));
       toast({
-        title: "Gambar QRIS berhasil dioptimasi (WebP)",
-        description: `Ukuran: ${formatKilobytes(compressed.compressedBytes)}. Jangan lupa klik Simpan Pengaturan Pembayaran.`,
+        title: "Gambar QRIS siap diunggah",
+        description: `Ukuran: ${formatKilobytes(compressed.compressedBytes)}. Klik Simpan Pengaturan Pembayaran untuk menyimpan ke server.`,
         variant: "info",
       });
     } catch {
@@ -500,13 +520,12 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Save Personal Bank / E-Wallet / QRIS Recipient Settings
-  const handleSavePaymentConfig = (e: React.FormEvent) => {
+  // Save Personal Bank / E-Wallet / QRIS Recipient Settings via Server API
+  const handleSavePaymentConfig = async (e: React.FormEvent) => {
     e.preventDefault();
-    const fresh = loadAppState();
-    const updated: LocalAppState = {
-      ...fresh,
-      paymentConfig: {
+    setIsSavingPaymentConfig(true);
+    try {
+      const finalConfig: PaymentRecipientConfig = {
         ...paymentConfigDraft,
         qrisMerchantName:
           paymentConfigDraft.qrisMerchantName.trim() ||
@@ -522,17 +541,96 @@ export default function AdminDashboardPage() {
         whatsappConfirmationNumber:
           paymentConfigDraft.whatsappConfirmationNumber.trim(),
         requireAdminApproval: true,
-      },
-    };
-    saveAppState(updated);
-    setAppState(updated);
-    toast({
-      title: "Pengaturan Pembayaran Disimpan!",
-      description:
-        "Rekening Bank, E-Wallet, dan QRIS kamu sekarang aktif di halaman Checkout & Status Pembayaran.",
-      variant: "success",
-    });
+      };
+
+      // Build multipart form — include QRIS file if one was selected
+      const pendingQrisFile = (
+        window as unknown as Record<string, File | undefined>
+      ).__haiyoQrisFile;
+
+      let savedQrisUrl = finalConfig.qrisImageUrl;
+
+      if (pendingQrisFile) {
+        // Upload via multipart
+        const formData = new FormData();
+        // Strip local dataUrl from config before sending (server will return real URL)
+        const configForServer = { ...finalConfig, qrisImageUrl: finalConfig.qrisImageUrl.startsWith("data:") ? "" : finalConfig.qrisImageUrl };
+        formData.append("config", JSON.stringify(configForServer));
+        formData.append("qrisFile", pendingQrisFile);
+
+        const res = await fetch("/api/admin/payment-settings", {
+          method: "POST",
+          headers: {
+            "x-admin-secret": "admin@haiyo.id",
+          },
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = (await res.json()) as { error?: string };
+          throw new Error(err.error ?? "Server error");
+        }
+        const result = (await res.json()) as {
+          success: boolean;
+          qrisImageUrl?: string | null;
+        };
+        if (result.qrisImageUrl) {
+          savedQrisUrl = result.qrisImageUrl;
+          finalConfig.qrisImageUrl = savedQrisUrl;
+        }
+        // Clear the pending file reference
+        delete (window as unknown as Record<string, unknown>).__haiyoQrisFile;
+      } else {
+        // No new file — JSON POST only (existing URL or empty)
+        const configForServer = {
+          ...finalConfig,
+          // Don't send large base64 data URLs as JSON — keep existing storage URL
+          qrisImageUrl: finalConfig.qrisImageUrl.startsWith("data:")
+            ? ""
+            : finalConfig.qrisImageUrl,
+        };
+        const res = await fetch("/api/admin/payment-settings", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-secret": "admin@haiyo.id",
+          },
+          body: JSON.stringify(configForServer),
+        });
+        if (!res.ok) {
+          const err = (await res.json()) as { error?: string };
+          throw new Error(err.error ?? "Server error");
+        }
+      }
+
+      // Persist to local state / localStorage as well (optimistic UI)
+      const fresh = loadAppState();
+      const updated: LocalAppState = {
+        ...fresh,
+        paymentConfig: { ...finalConfig, qrisImageUrl: savedQrisUrl },
+      };
+      saveAppState(updated);
+      setAppState(updated);
+      setPaymentConfigDraft({ ...finalConfig, qrisImageUrl: savedQrisUrl });
+
+      toast({
+        title: "Pengaturan Pembayaran Disimpan!",
+        description:
+          "Rekening Bank, E-Wallet, dan QRIS kamu sekarang aktif di halaman Checkout & Status Pembayaran.",
+        variant: "success",
+      });
+    } catch (err) {
+      toast({
+        title: "Gagal menyimpan pengaturan pembayaran",
+        description:
+          err instanceof Error ? err.message : "Coba lagi beberapa saat.",
+        variant: "error",
+      });
+    } finally {
+      setIsSavingPaymentConfig(false);
+    }
   };
+
 
   // Helper to resolve user's display name, email, avatar
   const resolveUserDisplay = (
@@ -1750,7 +1848,11 @@ export default function AdminDashboardPage() {
                 >
                   Lihat Preview di Halaman Checkout →
                 </Link>
-                <Button type="submit" variant="primary">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={isSavingPaymentConfig}
+                >
                   Simpan Pengaturan Rekening & E-Wallet
                 </Button>
               </div>

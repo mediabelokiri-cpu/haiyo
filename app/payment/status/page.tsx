@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { AppShell, Badge, Button, Modal, useToast } from "@/components/ui";
 import {
+  fetchPaymentConfigFromServer,
   loadAppState,
   LocalAppState,
   resolveSubscriptionPlan,
@@ -55,6 +56,8 @@ function PaymentStatusContent() {
     setAppState(loadAppState());
 
     void (async () => {
+      // Fetch live admin payment config from server API first (prevents dummy defaults)
+      await fetchPaymentConfigFromServer();
       const synced = await syncAppStateFromSupabase();
       setAppState(synced);
     })();
