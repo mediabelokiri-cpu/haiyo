@@ -12,8 +12,13 @@ export function createAdminSupabaseClient() {
     );
   }
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const url =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    "https://jyxgbzlvmjmefvburlof.supabase.co";
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    "sb_publishable_PA2w59IyFZRWH8nu9D-Rsw_qFPsoS8t";
 
   if (!url || !serviceRoleKey) {
     throw new Error(
